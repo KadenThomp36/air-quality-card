@@ -24,6 +24,13 @@ class AirQualityCard extends HTMLElement {
         {
           type: 'grid',
           schema: [
+            { name: 'hcho_entity', selector: { entity: { domain: 'sensor' } } },
+            { name: 'tvoc_entity', selector: { entity: { domain: 'sensor' } } },
+          ]
+        },
+        {
+          type: 'grid',
+          schema: [
             { name: 'humidity_entity', selector: { entity: { domain: 'sensor' } } },
             { name: 'temperature_entity', selector: { entity: { domain: 'sensor' } } },
           ]
@@ -47,6 +54,8 @@ class AirQualityCard extends HTMLElement {
           humidity_entity: 'Humidity Sensor (optional)',
           temperature_entity: 'Temperature Sensor (optional)',
           air_quality_entity: 'Air Quality Index (optional)',
+          hcho_entity: 'Formaldehyde (HCHO; CH2O) Sensor (optional)',
+          tvoc_entity: 'Volatile Organic Compounds (tVOC) Sensor (optional)',
           recommendation_entity: 'Recommendation Sensor (optional)',
           hours_to_show: 'Graph History',
           temperature_unit: 'Temperature Unit'
@@ -74,7 +83,7 @@ class AirQualityCard extends HTMLElement {
     this._config = {};
     this._hass = null;
     this._rendered = false;
-    this._history = { co2: [], pm25: [], humidity: [], temperature: [] };
+    this._history = { co2: [], pm25: [], hcho: [], tvoc: [], humidity: [], temperature: [] };
     this._historyLoaded = false;
     this._graphData = {};
     this._isDragging = false;
@@ -112,6 +121,8 @@ class AirQualityCard extends HTMLElement {
     let size = 3; // Base size for header and recommendation
     if (this._config.co2_entity) size += 1;
     if (this._config.pm25_entity) size += 1;
+    if (this._config.hcho_entity) size += 1;
+    if (this._config.tvoc_entity) size += 1;
     if (this._config.humidity_entity) size += 1;
     if (this._config.temperature_entity) size += 1;
     return size;
@@ -134,6 +145,14 @@ class AirQualityCard extends HTMLElement {
       if (this._config.pm25_entity) {
         promises.push(this._fetchHistory(this._config.pm25_entity, startTime, endTime));
         keys.push('pm25');
+      }
+      if (this._config.hcho_entity) {
+        promises.push(this._fetchHistory(this._config.hcho_entity, startTime, endTime));
+        keys.push('hcho');
+      }
+      if (this._config.tvoc_entity) {
+        promises.push(this._fetchHistory(this._config.tvoc_entity, startTime, endTime));
+        keys.push('tvoc');
       }
       if (this._config.humidity_entity) {
         promises.push(this._fetchHistory(this._config.humidity_entity, startTime, endTime));
@@ -196,6 +215,22 @@ class AirQualityCard extends HTMLElement {
     if (value < 15) return '#8bc34a';
     if (value < 25) return '#ffc107';
     if (value < 35) return '#ff9800';
+    return '#f44336';
+  }
+
+  _getHCHOColor(value) {
+    if (value < 20) return '#4caf50';
+    if (value < 50) return '#8bc34a';
+    if (value < 100) return '#ffc107';
+    if (value < 200) return '#ff9800';
+    return '#f44336';
+  }
+
+  _getTVOCColor(value) {
+    if (value < 100) return '#4caf50';
+    if (value < 300) return '#8bc34a';
+    if (value < 500) return '#ffc107';
+    if (value < 1000) return '#ff9800';
     return '#f44336';
   }
 
@@ -302,6 +337,8 @@ class AirQualityCard extends HTMLElement {
   _initialRender() {
     const showCO2 = !!this._config.co2_entity;
     const showPM25 = !!this._config.pm25_entity;
+    const showHCHO = !!this._config.hcho_entity;
+    const showTVOC = !!this._config.tvoc_entity;
     const showHumidity = !!this._config.humidity_entity;
     const showTemp = !!this._config.temperature_entity;
 
@@ -564,6 +601,45 @@ class AirQualityCard extends HTMLElement {
               <div class="graph-time-axis" id="pm25-time-axis"></div>
             </div>
             ` : ''}
+            ${showHCHO ? `
+            <div class="graph-container" id="hcho-graph-container" data-entity="${this._config.hcho_entity}">
+              <div class="graph-header">
+                <span class="graph-label">HCHO / CH₂O</span>
+                <span class="graph-value" id="hcho-value">-- <span class="unit">ppb</span><span class="status" id="hcho-status"></span></span>
+              </div>
+              <div class="graph-wrapper">
+                <div class="graph" id="hcho-graph">
+                  <svg id="hcho-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="hcho-cursor"></div>
+                <div class="graph-tooltip" id="hcho-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="hcho-time-axis"></div>
+            </div>
+            ` : ''}
+
+            ${showTVOC ? `
+            <div class="graph-container" id="tvoc-graph-container" data-entity="${this._config.tvoc_entity}">
+              <div class="graph-header">
+                <span class="graph-label">tVOC</span>
+                <span class="graph-value" id="tvoc-value">-- <span class="unit">ppb</span><span class="status" id="tvoc-status"></span></span>
+              </div>
+              <div class="graph-wrapper">
+                <div class="graph" id="tvoc-graph">
+                  <svg id="tvoc-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="tvoc-cursor"></div>
+                <div class="graph-tooltip" id="tvoc-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="tvoc-time-axis"></div>
+            </div>
+            ` : ''}
 
             ${showHumidity ? `
             <div class="graph-container" id="humidity-graph-container" data-entity="${this._config.humidity_entity}">
@@ -615,6 +691,8 @@ class AirQualityCard extends HTMLElement {
 
     const co2 = this._config.co2_entity ? this._getNumericState(this._config.co2_entity) : null;
     const pm25 = this._config.pm25_entity ? this._getNumericState(this._config.pm25_entity) : null;
+    const hcho = this._config.hcho_entity ? this._getNumericState(this._config.hcho_entity) : null;
+    const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : null;
     const humidity = this._config.humidity_entity ? this._getNumericState(this._config.humidity_entity) : null;
     const temp = this._config.temperature_entity ? this._getNumericState(this._config.temperature_entity) : null;
     const recommendation = this._getRecommendation();
@@ -700,6 +778,34 @@ class AirQualityCard extends HTMLElement {
       }
     }
 
+    // Update HCHO
+    if (hcho !== null) {
+      const hchoColor = this._getHCHOColor(hcho);
+      const hchoValueEl = this.shadowRoot.getElementById('hcho-value');
+      if (hchoValueEl) {
+        hchoValueEl.innerHTML = `${hcho.toFixed(1)} <span class="unit">ppb</span><span class="status" id="hcho-status"></span>`;
+        const statusEl = hchoValueEl.querySelector('.status');
+        statusEl.textContent = hcho < 20 ? 'Excellent' : hcho < 50 ? 'Good' : hcho < 100 ? 'Moderate' : hcho < 200 ? 'Elevated' : 'Poor';
+        statusEl.style.background = hchoColor + '22';
+        statusEl.style.color = hchoColor;
+        hchoValueEl.style.color = hchoColor;
+      }
+    }
+
+    // Update tVOC
+    if (tvoc !== null) {
+      const tvocColor = this._getTVOCColor(tvoc);
+      const tvocValueEl = this.shadowRoot.getElementById('tvoc-value');
+      if (tvocValueEl) {
+        tvocValueEl.innerHTML = `${tvoc.toFixed(1)} <span class="unit">ppb</span><span class="status" id="tvoc-status"></span>`;
+        const statusEl = tvocValueEl.querySelector('.status');
+        statusEl.textContent = tvoc < 100 ? 'Excellent' : tvoc < 300 ? 'Good' : tvoc < 500 ? 'Moderate' : tvoc < 1000 ? 'Elevated' : 'Poor';
+        statusEl.style.background = tvocColor + '22';
+        statusEl.style.color = tvocColor;
+        tvocValueEl.style.color = tvocColor;
+      }
+    }
+
     // Update Humidity
     if (humidity !== null) {
       const humidityColor = this._getHumidityColor(humidity);
@@ -755,6 +861,12 @@ class AirQualityCard extends HTMLElement {
     }
     if (this._config.pm25_entity && this._history.pm25.length) {
       this._renderGraph('pm25', this._history.pm25, this._getPM25Color.bind(this), 0, 60, 'μg/m³');
+    }
+    if (this._config.hcho_entity && this._history.hcho.length) {
+      this._renderGraph('hcho', this._history.hcho, this._getHCHOColor.bind(this), 0, 300, 'ppb');
+    }
+    if (this._config.tvoc_entity && this._history.tvoc.length) {
+      this._renderGraph('tvoc', this._history.tvoc, this._getTVOCColor.bind(this), 0, 1500, 'ppb');
     }
     if (this._config.humidity_entity && this._history.humidity.length) {
       this._renderGraph('humidity', this._history.humidity, this._getHumidityColor.bind(this), 0, 100, '%');
@@ -840,7 +952,7 @@ class AirQualityCard extends HTMLElement {
   }
 
   _setupGraphInteractions() {
-    const graphIds = ['co2', 'pm25', 'humidity', 'temperature'].filter(id => {
+    const graphIds = ['co2', 'pm25', 'hcho', 'tvoc', 'humidity', 'temperature'].filter(id => {
       return this._config[`${id === 'pm25' ? 'pm25' : id}_entity`];
     });
 
@@ -943,7 +1055,7 @@ class AirQualityCard extends HTMLElement {
 
     if (valueEl) {
       let displayValue;
-      if (data.unit === 'ppm') displayValue = Math.round(closest.value);
+      if (data.unit === 'ppm' || data.unit === 'ppb') displayValue = Math.round(closest.value);
       else if (data.unit === '%' || data.unit === '°F' || data.unit === '°C') displayValue = Math.round(closest.value);
       else displayValue = closest.value.toFixed(1);
       valueEl.textContent = `${displayValue} ${data.unit}`;
@@ -1014,6 +1126,8 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         name: 'Card Name',
         co2_entity: 'CO₂ Sensor',
         pm25_entity: 'PM2.5 Sensor',
+        hcho_entity: 'HCHO Sensor (optional)',
+        tvoc_entity: 'tVOC Sensor (optional)',
         humidity_entity: 'Humidity Sensor (optional)',
         temperature_entity: 'Temperature Sensor (optional)',
         air_quality_entity: 'Air Quality Index (optional)',
@@ -1029,6 +1143,8 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         { name: 'name', selector: { text: {} } },
         { name: 'co2_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'pm25_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'hcho_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'tvoc_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'humidity_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'temperature_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
