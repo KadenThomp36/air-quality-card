@@ -6,7 +6,7 @@ A custom Home Assistant Lovelace card for monitoring indoor air quality with bea
 
 ## Features
 
-- **Real-time monitoring** of CO2, PM2.5, humidity, and temperature
+- **Real-time monitoring** of CO2, PM2.5, HCHO, tVOC, humidity, and temperature
 - **Gradient-colored graphs** that change color based on air quality levels
 - **Interactive hover/touch** to see historical values at any point
 - **Health-based thresholds** following WHO 2021 guidelines and ASHRAE standards
@@ -63,14 +63,18 @@ temperature_unit: C
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `name` | string | No | "Air Quality" | Card title |
-| `co2_entity` | string | Yes | - | CO2 sensor entity ID |
-| `pm25_entity` | string | Yes | - | PM2.5 sensor entity ID |
-| `humidity_entity` | string | No | - | Humidity sensor entity ID |
-| `temperature_entity` | string | No | - | Temperature sensor entity ID |
+| `co2_entity` | string | No* | - | CO2 sensor entity ID |
+| `pm25_entity` | string | No* | - | PM2.5 sensor entity ID |
+| `hcho_entity` | string | No* | - | Formaldehyde (HCHO) sensor entity ID |
+| `tvoc_entity` | string | No* | - | Volatile organic compounds (tVOC) sensor entity ID |
+| `humidity_entity` | string | No* | - | Humidity sensor entity ID |
+| `temperature_entity` | string | No* | - | Temperature sensor entity ID |
 | `air_quality_entity` | string | No | - | Overall air quality index entity |
 | `recommendation_entity` | string | No | - | Recommendation template sensor |
 | `hours_to_show` | number | No | 24 | Hours of history to display (1-168) |
 | `temperature_unit` | string | No | "F" | Temperature unit: "F" (Fahrenheit) or "C" (Celsius) |
+
+\* At least one sensor entity is required. Use any combination that fits your setup.
 
 ## Recommendation Sensor
 
@@ -127,6 +131,24 @@ Based on WHO 2021 Air Quality Guidelines:
 | Elevated | 25-35 µg/m³ | Orange | Consider air purifier |
 | Poor | > 35 µg/m³ | Red | Air purifier recommended |
 
+### HCHO (Formaldehyde)
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Excellent | < 20 ppb | Green | Safe levels |
+| Good | 20-50 ppb | Light Green | Acceptable |
+| Moderate | 50-100 ppb | Yellow | Consider ventilation |
+| Elevated | 100-200 ppb | Orange | Ventilation needed |
+| Poor | > 200 ppb | Red | Take action |
+
+### tVOC (Volatile Organic Compounds)
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Excellent | < 100 ppb | Green | Clean air |
+| Good | 100-300 ppb | Light Green | Acceptable |
+| Moderate | 300-500 ppb | Yellow | Consider ventilation |
+| Elevated | 500-1000 ppb | Orange | Ventilation needed |
+| Poor | > 1000 ppb | Red | Take action |
+
 ### Humidity
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
@@ -138,7 +160,7 @@ Based on WHO 2021 Air Quality Guidelines:
 
 ## Supported Devices
 
-This card works with any air quality sensor that provides entities for CO2 and PM2.5. Tested with:
+This card works with any sensor that provides entities for CO2, PM2.5, HCHO, tVOC, humidity, or temperature. Use any combination — even a single sensor works. Tested with:
 
 - IKEA VINDSTYRKA / ALPSTUGA (via Matter)
 - Aqara TVOC Air Quality Monitor

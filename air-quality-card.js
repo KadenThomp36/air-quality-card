@@ -6,7 +6,7 @@
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.2.0';
+const CARD_VERSION = '2.3.0';
 
 class AirQualityCard extends HTMLElement {
   // Visual editor using getConfigForm (preferred modern approach)
@@ -92,9 +92,11 @@ class AirQualityCard extends HTMLElement {
   setConfig(config) {
     if (!config) throw new Error('Invalid configuration');
 
-    // Validate required entities
-    if (!config.co2_entity && !config.pm25_entity) {
-      throw new Error('Please configure at least a CO₂ or PM2.5 sensor entity');
+    // Validate that at least one sensor entity is configured
+    const hasEntity = config.co2_entity || config.pm25_entity || config.hcho_entity ||
+      config.tvoc_entity || config.humidity_entity || config.temperature_entity;
+    if (!hasEntity) {
+      throw new Error('Please configure at least one sensor entity');
     }
 
     this._config = {
