@@ -1,12 +1,12 @@
 /**
- * Air Quality Card v2.1.0
+ * Air Quality Card v2.4.0
  * A custom Home Assistant card for air quality visualization
  * Thresholds based on WHO 2021 guidelines and ASHRAE standards
  *
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.3.0';
+const CARD_VERSION = '2.4.0';
 
 class AirQualityCard extends HTMLElement {
   // Visual editor using getConfigForm (preferred modern approach)
@@ -37,6 +37,33 @@ class AirQualityCard extends HTMLElement {
         },
         {
           type: 'expandable',
+          title: 'Outdoor Sensors (optional)',
+          schema: [
+            {
+              type: 'grid',
+              schema: [
+                { name: 'outdoor_co2_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_pm25_entity', selector: { entity: { domain: 'sensor' } } },
+              ]
+            },
+            {
+              type: 'grid',
+              schema: [
+                { name: 'outdoor_hcho_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_tvoc_entity', selector: { entity: { domain: 'sensor' } } },
+              ]
+            },
+            {
+              type: 'grid',
+              schema: [
+                { name: 'outdoor_humidity_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_temperature_entity', selector: { entity: { domain: 'sensor' } } },
+              ]
+            },
+          ]
+        },
+        {
+          type: 'expandable',
           title: 'Advanced',
           schema: [
             { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
@@ -56,6 +83,12 @@ class AirQualityCard extends HTMLElement {
           air_quality_entity: 'Air Quality Index (optional)',
           hcho_entity: 'Formaldehyde (HCHO; CH2O) Sensor (optional)',
           tvoc_entity: 'Volatile Organic Compounds (tVOC) Sensor (optional)',
+          outdoor_co2_entity: 'Outdoor CO₂ Sensor',
+          outdoor_pm25_entity: 'Outdoor PM2.5 Sensor',
+          outdoor_hcho_entity: 'Outdoor HCHO Sensor',
+          outdoor_tvoc_entity: 'Outdoor tVOC Sensor',
+          outdoor_humidity_entity: 'Outdoor Humidity Sensor',
+          outdoor_temperature_entity: 'Outdoor Temperature Sensor',
           recommendation_entity: 'Recommendation Sensor (optional)',
           hours_to_show: 'Graph History',
           temperature_unit: 'Temperature Unit'
@@ -83,7 +116,7 @@ class AirQualityCard extends HTMLElement {
     this._config = {};
     this._hass = null;
     this._rendered = false;
-    this._history = { co2: [], pm25: [], hcho: [], tvoc: [], humidity: [], temperature: [] };
+    this._history = { co2: [], pm25: [], hcho: [], tvoc: [], humidity: [], temperature: [], outdoor_co2: [], outdoor_pm25: [], outdoor_hcho: [], outdoor_tvoc: [], outdoor_humidity: [], outdoor_temperature: [] };
     this._historyLoaded = false;
     this._graphData = {};
     this._isDragging = false;
@@ -163,6 +196,16 @@ class AirQualityCard extends HTMLElement {
       if (this._config.temperature_entity) {
         promises.push(this._fetchHistory(this._config.temperature_entity, startTime, endTime));
         keys.push('temperature');
+      }
+
+      // Outdoor sensors
+      const outdoorSensors = ['co2', 'pm25', 'hcho', 'tvoc', 'humidity', 'temperature'];
+      for (const sensor of outdoorSensors) {
+        const key = `outdoor_${sensor}_entity`;
+        if (this._config[key]) {
+          promises.push(this._fetchHistory(this._config[key], startTime, endTime));
+          keys.push(`outdoor_${sensor}`);
+        }
       }
 
       const results = await Promise.all(promises);
@@ -311,15 +354,31 @@ class AirQualityCard extends HTMLElement {
     const pm25 = this._config.pm25_entity ? this._getNumericState(this._config.pm25_entity) : 0;
     const humidity = this._config.humidity_entity ? this._getNumericState(this._config.humidity_entity) : 45;
 
-    if (co2 > 1500) return 'Ventilate Now';
-    if (pm25 > 35) return 'Run Air Purifier';
-    if (pm25 > 25 && co2 > 1000) return 'Air Purifier + Ventilate';
-    if (pm25 > 25) return 'Run Air Purifier';
-    if (co2 > 1000) return 'Open Window';
-    if (humidity < 30) return 'Too Dry';
-    if (humidity > 60) return 'Too Humid';
-    if (co2 > 800 || pm25 > 15) return 'Consider Ventilating';
-    return 'All Good';
+    // Read outdoor values for smart recommendations
+    const outdoorCo2 = this._config.outdoor_co2_entity ? this._getNumericState(this._config.outdoor_co2_entity) : null;
+    const outdoorPm25 = this._config.outdoor_pm25_entity ? this._getNumericState(this._config.outdoor_pm25_entity) : null;
+    const outdoorIsWorse = (outdoorPm25 !== null && outdoorPm25 > pm25) || (outdoorCo2 !== null && outdoorCo2 > co2);
+
+    // Standard indoor logic first
+    let rec = 'All Good';
+    if (co2 > 1500) rec = 'Ventilate Now';
+    else if (pm25 > 35) rec = 'Run Air Purifier';
+    else if (pm25 > 25 && co2 > 1000) rec = 'Air Purifier + Ventilate';
+    else if (pm25 > 25) rec = 'Run Air Purifier';
+    else if (co2 > 1000) rec = 'Open Window';
+    else if (humidity < 30) rec = 'Too Dry';
+    else if (humidity > 60) rec = 'Too Humid';
+    else if (co2 > 800 || pm25 > 15) rec = 'Consider Ventilating';
+
+    // Override ventilation recommendations if outdoor air is worse
+    const ventilationRecs = ['Ventilate Now', 'Open Window', 'Consider Ventilating', 'Air Purifier + Ventilate'];
+    if (outdoorIsWorse && ventilationRecs.includes(rec)) {
+      // If indoor PM2.5 is also bad, keep the purifier part
+      if (pm25 > 25) return 'Run Air Purifier';
+      return 'Keep Windows Closed';
+    }
+
+    return rec;
   }
 
   _getRecommendationIcon(rec) {
@@ -330,6 +389,7 @@ class AirQualityCard extends HTMLElement {
       'Run Air Purifier': 'mdi:air-purifier',
       'Air Purifier + Ventilate': 'mdi:alert',
       'Ventilate Now': 'mdi:alert-circle',
+      'Keep Windows Closed': 'mdi:window-closed-variant',
       'Too Dry': 'mdi:water-percent',
       'Too Humid': 'mdi:water'
     };
@@ -529,6 +589,21 @@ class AirQualityCard extends HTMLElement {
           margin-top: 1px;
         }
 
+        .graph-tooltip-outdoor {
+          font-size: 0.8em;
+          font-weight: 400;
+          color: var(--secondary-text-color);
+          opacity: 0.7;
+          margin-top: 1px;
+          display: none;
+        }
+
+        .outdoor-value {
+          font-size: 0.75em;
+          color: var(--secondary-text-color);
+          opacity: 0.7;
+        }
+
         .graph-time-axis {
           display: flex;
           justify-content: space-between;
@@ -577,6 +652,7 @@ class AirQualityCard extends HTMLElement {
                 <div class="graph-cursor" id="co2-cursor"></div>
                 <div class="graph-tooltip" id="co2-tooltip">
                   <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
                   <div class="graph-tooltip-time"></div>
                 </div>
               </div>
@@ -597,6 +673,7 @@ class AirQualityCard extends HTMLElement {
                 <div class="graph-cursor" id="pm25-cursor"></div>
                 <div class="graph-tooltip" id="pm25-tooltip">
                   <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
                   <div class="graph-tooltip-time"></div>
                 </div>
               </div>
@@ -616,6 +693,7 @@ class AirQualityCard extends HTMLElement {
                 <div class="graph-cursor" id="hcho-cursor"></div>
                 <div class="graph-tooltip" id="hcho-tooltip">
                   <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
                   <div class="graph-tooltip-time"></div>
                 </div>
               </div>
@@ -636,6 +714,7 @@ class AirQualityCard extends HTMLElement {
                 <div class="graph-cursor" id="tvoc-cursor"></div>
                 <div class="graph-tooltip" id="tvoc-tooltip">
                   <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
                   <div class="graph-tooltip-time"></div>
                 </div>
               </div>
@@ -656,6 +735,7 @@ class AirQualityCard extends HTMLElement {
                 <div class="graph-cursor" id="humidity-cursor"></div>
                 <div class="graph-tooltip" id="humidity-tooltip">
                   <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
                   <div class="graph-tooltip-time"></div>
                 </div>
               </div>
@@ -676,6 +756,7 @@ class AirQualityCard extends HTMLElement {
                 <div class="graph-cursor" id="temperature-cursor"></div>
                 <div class="graph-tooltip" id="temperature-tooltip">
                   <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
                   <div class="graph-tooltip-time"></div>
                 </div>
               </div>
@@ -741,23 +822,36 @@ class AirQualityCard extends HTMLElement {
         if (co2 !== null && co2 > 800) subtitle = `CO₂ at ${Math.round(co2)} ppm`;
         else if (pm25 !== null && pm25 > 15) subtitle = `PM2.5 at ${pm25.toFixed(0)} μg/m³`;
         else subtitle = 'Slightly elevated levels';
+      } else if (recommendation === 'Keep Windows Closed') {
+        const outdoorPm25 = this._config.outdoor_pm25_entity ? this._getNumericState(this._config.outdoor_pm25_entity) : null;
+        const outdoorCo2 = this._config.outdoor_co2_entity ? this._getNumericState(this._config.outdoor_co2_entity) : null;
+        if (outdoorPm25 !== null && outdoorPm25 > 35) subtitle = `Outdoor PM2.5 at ${outdoorPm25.toFixed(0)} μg/m³ - poor outdoor air`;
+        else if (outdoorPm25 !== null) subtitle = `Outdoor PM2.5 at ${outdoorPm25.toFixed(0)} μg/m³ - worse than indoor`;
+        else if (outdoorCo2 !== null) subtitle = `Outdoor CO₂ at ${Math.round(outdoorCo2)} ppm - worse than indoor`;
+        else subtitle = 'Outdoor air quality is worse than indoor';
       }
       recSubtitle.textContent = subtitle;
 
       const isGood = recommendation === 'All Good';
-      const isPoor = ['Run Air Purifier', 'Open Window', 'Ventilate Now', 'Air Purifier + Ventilate'].includes(recommendation);
+      const isPoor = ['Run Air Purifier', 'Open Window', 'Ventilate Now', 'Air Purifier + Ventilate', 'Keep Windows Closed'].includes(recommendation);
       recIcon.style.color = isGood ? 'var(--aq-excellent)' : (isPoor ? 'var(--aq-poor)' : 'var(--aq-moderate)');
       recContainer.style.background = isGood ?
         'rgba(76, 175, 80, 0.1)' : (isPoor ? 'rgba(255, 152, 0, 0.15)' : 'rgba(255, 193, 7, 0.1)');
     }
 
+    // Helper to render outdoor value suffix
+    const outdoorSuffix = (entityKey, value, unit) => {
+      if (!this._config[entityKey]) return '';
+      const val = this._getNumericState(this._config[entityKey]);
+      return ` <span class="outdoor-value">(out: ${unit === 'μg/m³' || unit === 'ppb' ? val.toFixed(1) : Math.round(val)} ${unit})</span>`;
+    };
+
     // Update CO2
     if (co2 !== null) {
       const co2Color = this._getCO2Color(co2);
       const co2ValueEl = this.shadowRoot.getElementById('co2-value');
-      const co2StatusEl = this.shadowRoot.getElementById('co2-status');
       if (co2ValueEl) {
-        co2ValueEl.innerHTML = `${Math.round(co2)} <span class="unit">ppm</span><span class="status" id="co2-status"></span>`;
+        co2ValueEl.innerHTML = `${Math.round(co2)} <span class="unit">ppm</span><span class="status" id="co2-status"></span>${outdoorSuffix('outdoor_co2_entity', co2, 'ppm')}`;
         const statusEl = co2ValueEl.querySelector('.status');
         statusEl.textContent = co2 < 800 ? 'Excellent' : co2 < 1000 ? 'Good' : co2 < 1500 ? 'Elevated' : 'Poor';
         statusEl.style.background = co2Color + '22';
@@ -771,7 +865,7 @@ class AirQualityCard extends HTMLElement {
       const pm25Color = this._getPM25Color(pm25);
       const pm25ValueEl = this.shadowRoot.getElementById('pm25-value');
       if (pm25ValueEl) {
-        pm25ValueEl.innerHTML = `${pm25.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm25-status"></span>`;
+        pm25ValueEl.innerHTML = `${pm25.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm25-status"></span>${outdoorSuffix('outdoor_pm25_entity', pm25, 'μg/m³')}`;
         const statusEl = pm25ValueEl.querySelector('.status');
         statusEl.textContent = pm25 < 5 ? 'Excellent' : pm25 < 15 ? 'Good' : pm25 < 25 ? 'Moderate' : pm25 < 35 ? 'Elevated' : 'Poor';
         statusEl.style.background = pm25Color + '22';
@@ -785,7 +879,7 @@ class AirQualityCard extends HTMLElement {
       const hchoColor = this._getHCHOColor(hcho);
       const hchoValueEl = this.shadowRoot.getElementById('hcho-value');
       if (hchoValueEl) {
-        hchoValueEl.innerHTML = `${hcho.toFixed(1)} <span class="unit">ppb</span><span class="status" id="hcho-status"></span>`;
+        hchoValueEl.innerHTML = `${hcho.toFixed(1)} <span class="unit">ppb</span><span class="status" id="hcho-status"></span>${outdoorSuffix('outdoor_hcho_entity', hcho, 'ppb')}`;
         const statusEl = hchoValueEl.querySelector('.status');
         statusEl.textContent = hcho < 20 ? 'Excellent' : hcho < 50 ? 'Good' : hcho < 100 ? 'Moderate' : hcho < 200 ? 'Elevated' : 'Poor';
         statusEl.style.background = hchoColor + '22';
@@ -799,7 +893,7 @@ class AirQualityCard extends HTMLElement {
       const tvocColor = this._getTVOCColor(tvoc);
       const tvocValueEl = this.shadowRoot.getElementById('tvoc-value');
       if (tvocValueEl) {
-        tvocValueEl.innerHTML = `${tvoc.toFixed(1)} <span class="unit">ppb</span><span class="status" id="tvoc-status"></span>`;
+        tvocValueEl.innerHTML = `${tvoc.toFixed(1)} <span class="unit">ppb</span><span class="status" id="tvoc-status"></span>${outdoorSuffix('outdoor_tvoc_entity', tvoc, 'ppb')}`;
         const statusEl = tvocValueEl.querySelector('.status');
         statusEl.textContent = tvoc < 100 ? 'Excellent' : tvoc < 300 ? 'Good' : tvoc < 500 ? 'Moderate' : tvoc < 1000 ? 'Elevated' : 'Poor';
         statusEl.style.background = tvocColor + '22';
@@ -813,7 +907,7 @@ class AirQualityCard extends HTMLElement {
       const humidityColor = this._getHumidityColor(humidity);
       const humidityValueEl = this.shadowRoot.getElementById('humidity-value');
       if (humidityValueEl) {
-        humidityValueEl.innerHTML = `${Math.round(humidity)} <span class="unit">%</span><span class="status" id="humidity-status"></span>`;
+        humidityValueEl.innerHTML = `${Math.round(humidity)} <span class="unit">%</span><span class="status" id="humidity-status"></span>${outdoorSuffix('outdoor_humidity_entity', humidity, '%')}`;
         const statusEl = humidityValueEl.querySelector('.status');
         let humidityStatus = 'Comfortable';
         if (humidity < 30) humidityStatus = 'Too Dry';
@@ -833,7 +927,7 @@ class AirQualityCard extends HTMLElement {
       const tempUnit = this._getTempUnit();
       const tempValueEl = this.shadowRoot.getElementById('temperature-value');
       if (tempValueEl) {
-        tempValueEl.innerHTML = `${Math.round(temp)} <span class="unit">${tempUnit}</span><span class="status" id="temperature-status"></span>`;
+        tempValueEl.innerHTML = `${Math.round(temp)} <span class="unit">${tempUnit}</span><span class="status" id="temperature-status"></span>${outdoorSuffix('outdoor_temperature_entity', temp, tempUnit)}`;
         const statusEl = tempValueEl.querySelector('.status');
         let tempStatus = 'Comfortable';
         if (this._isCelsius()) {
@@ -859,31 +953,31 @@ class AirQualityCard extends HTMLElement {
     this._graphData = {};
 
     if (this._config.co2_entity && this._history.co2.length) {
-      this._renderGraph('co2', this._history.co2, this._getCO2Color.bind(this), 400, 2000, 'ppm');
+      this._renderGraph('co2', this._history.co2, this._getCO2Color.bind(this), 400, 2000, 'ppm', this._history.outdoor_co2);
     }
     if (this._config.pm25_entity && this._history.pm25.length) {
-      this._renderGraph('pm25', this._history.pm25, this._getPM25Color.bind(this), 0, 60, 'μg/m³');
+      this._renderGraph('pm25', this._history.pm25, this._getPM25Color.bind(this), 0, 60, 'μg/m³', this._history.outdoor_pm25);
     }
     if (this._config.hcho_entity && this._history.hcho.length) {
-      this._renderGraph('hcho', this._history.hcho, this._getHCHOColor.bind(this), 0, 300, 'ppb');
+      this._renderGraph('hcho', this._history.hcho, this._getHCHOColor.bind(this), 0, 300, 'ppb', this._history.outdoor_hcho);
     }
     if (this._config.tvoc_entity && this._history.tvoc.length) {
-      this._renderGraph('tvoc', this._history.tvoc, this._getTVOCColor.bind(this), 0, 1500, 'ppb');
+      this._renderGraph('tvoc', this._history.tvoc, this._getTVOCColor.bind(this), 0, 1500, 'ppb', this._history.outdoor_tvoc);
     }
     if (this._config.humidity_entity && this._history.humidity.length) {
-      this._renderGraph('humidity', this._history.humidity, this._getHumidityColor.bind(this), 0, 100, '%');
+      this._renderGraph('humidity', this._history.humidity, this._getHumidityColor.bind(this), 0, 100, '%', this._history.outdoor_humidity);
     }
     if (this._config.temperature_entity && this._history.temperature.length) {
       const tempUnit = this._getTempUnit();
       const tempMin = this._isCelsius() ? 10 : 50;
       const tempMax = this._isCelsius() ? 32 : 90;
-      this._renderGraph('temperature', this._history.temperature, this._getTempColor.bind(this), tempMin, tempMax, tempUnit);
+      this._renderGraph('temperature', this._history.temperature, this._getTempColor.bind(this), tempMin, tempMax, tempUnit, this._history.outdoor_temperature);
     }
 
     this._setupGraphInteractions();
   }
 
-  _renderGraph(graphId, data, colorFn, minVal, maxVal, unit) {
+  _renderGraph(graphId, data, colorFn, minVal, maxVal, unit, outdoorData) {
     const svg = this.shadowRoot.getElementById(`${graphId}-svg`);
     const timeAxis = this.shadowRoot.getElementById(`${graphId}-time-axis`);
     if (!svg || !data.length) return;
@@ -892,9 +986,13 @@ class AirQualityCard extends HTMLElement {
     const height = 50;
     const padding = 2;
 
-    const values = data.map(d => d.value);
-    const dataMin = Math.min(...values, minVal);
-    const dataMax = Math.max(...values, maxVal);
+    // Include outdoor values in min/max calculation so both lines share the same scale
+    const allValues = data.map(d => d.value);
+    if (outdoorData && outdoorData.length) {
+      allValues.push(...outdoorData.map(d => d.value));
+    }
+    const dataMin = Math.min(...allValues, minVal);
+    const dataMax = Math.max(...allValues, maxVal);
     const range = dataMax - dataMin || 1;
 
     const points = data.map((d, i) => {
@@ -903,11 +1001,22 @@ class AirQualityCard extends HTMLElement {
       return { x, y, value: d.value, time: d.time, color: colorFn(d.value) };
     });
 
-    this._graphData[graphId] = { points, unit, colorFn };
+    // Map outdoor data to points using same coordinate system
+    let outdoorPoints = [];
+    if (outdoorData && outdoorData.length >= 2) {
+      outdoorPoints = outdoorData.map((d, i) => {
+        const x = padding + (i / (outdoorData.length - 1)) * (width - 2 * padding);
+        const y = height - padding - ((d.value - dataMin) / range) * (height - 2 * padding);
+        return { x, y, value: d.value, time: d.time, color: colorFn(d.value) };
+      });
+    }
+
+    this._graphData[graphId] = { points, outdoorPoints, unit, colorFn };
 
     if (points.length < 2) return;
 
-    const gradientId = `gradient-${graphId}-${Date.now()}`;
+    const ts = Date.now();
+    const gradientId = `gradient-${graphId}-${ts}`;
     let gradientStops = '';
     for (let i = 0; i < points.length; i++) {
       const pct = (i / (points.length - 1)) * 100;
@@ -920,24 +1029,66 @@ class AirQualityCard extends HTMLElement {
     }
 
     const areaPath = linePath + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
-    const fillGradientId = `fill-${graphId}-${Date.now()}`;
+    const fillGradientId = `fill-${graphId}-${ts}`;
 
-    svg.innerHTML = `
-      <defs>
-        <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="0%">
-          ${gradientStops}
+    // Build outdoor dashed line SVG if data exists
+    let outdoorSvg = '';
+    if (outdoorPoints.length >= 2) {
+      const outdoorGradientId = `outdoor-gradient-${graphId}-${ts}`;
+      let outdoorGradientStops = '';
+      for (let i = 0; i < outdoorPoints.length; i++) {
+        const pct = (i / (outdoorPoints.length - 1)) * 100;
+        outdoorGradientStops += `<stop offset="${pct}%" style="stop-color:${outdoorPoints[i].color}" />`;
+      }
+      let outdoorLinePath = `M ${outdoorPoints[0].x} ${outdoorPoints[0].y}`;
+      for (let i = 1; i < outdoorPoints.length; i++) {
+        outdoorLinePath += ` L ${outdoorPoints[i].x} ${outdoorPoints[i].y}`;
+      }
+      outdoorSvg = `
+        <linearGradient id="${outdoorGradientId}" x1="0%" y1="0%" x2="100%" y2="0%">
+          ${outdoorGradientStops}
         </linearGradient>
-        <linearGradient id="${fillGradientId}" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" style="stop-color:currentColor;stop-opacity:0.2" />
-          <stop offset="100%" style="stop-color:currentColor;stop-opacity:0.02" />
-        </linearGradient>
-        <mask id="mask-${graphId}">
-          <path d="${areaPath}" fill="white" />
-        </mask>
-      </defs>
+      `;
+      // The outdoor path is appended after the main line
+      outdoorSvg += `</defs>
       <rect x="0" y="0" width="${width}" height="${height}" fill="url(#${fillGradientId})" mask="url(#mask-${graphId})" style="color: url(#${gradientId})" />
       <path d="${linePath}" stroke="url(#${gradientId})" class="graph-line" fill="none" />
-    `;
+      <path d="${outdoorLinePath}" stroke="url(#${outdoorGradientId})" class="graph-line" fill="none" stroke-dasharray="4 3" opacity="0.5" />`;
+    }
+
+    if (outdoorPoints.length >= 2) {
+      svg.innerHTML = `
+        <defs>
+          <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="0%">
+            ${gradientStops}
+          </linearGradient>
+          <linearGradient id="${fillGradientId}" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:currentColor;stop-opacity:0.2" />
+            <stop offset="100%" style="stop-color:currentColor;stop-opacity:0.02" />
+          </linearGradient>
+          <mask id="mask-${graphId}">
+            <path d="${areaPath}" fill="white" />
+          </mask>
+          ${outdoorSvg}
+      `;
+    } else {
+      svg.innerHTML = `
+        <defs>
+          <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="0%">
+            ${gradientStops}
+          </linearGradient>
+          <linearGradient id="${fillGradientId}" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:currentColor;stop-opacity:0.2" />
+            <stop offset="100%" style="stop-color:currentColor;stop-opacity:0.02" />
+          </linearGradient>
+          <mask id="mask-${graphId}">
+            <path d="${areaPath}" fill="white" />
+          </mask>
+        </defs>
+        <rect x="0" y="0" width="${width}" height="${height}" fill="url(#${fillGradientId})" mask="url(#mask-${graphId})" style="color: url(#${gradientId})" />
+        <path d="${linePath}" stroke="url(#${gradientId})" class="graph-line" fill="none" />
+      `;
+    }
 
     if (timeAxis && points.length > 0) {
       const startTime = new Date(points[0].time);
@@ -1053,15 +1204,38 @@ class AirQualityCard extends HTMLElement {
     cursor.style.setProperty('--cursor-color', closest.color);
 
     const valueEl = tooltip.querySelector('.graph-tooltip-value');
+    const outdoorEl = tooltip.querySelector('.graph-tooltip-outdoor');
     const timeEl = tooltip.querySelector('.graph-tooltip-time');
 
+    const formatVal = (val) => {
+      if (data.unit === 'ppm' || data.unit === 'ppb') return Math.round(val);
+      if (data.unit === '%' || data.unit === '°F' || data.unit === '°C') return Math.round(val);
+      return val.toFixed(1);
+    };
+
     if (valueEl) {
-      let displayValue;
-      if (data.unit === 'ppm' || data.unit === 'ppb') displayValue = Math.round(closest.value);
-      else if (data.unit === '%' || data.unit === '°F' || data.unit === '°C') displayValue = Math.round(closest.value);
-      else displayValue = closest.value.toFixed(1);
-      valueEl.textContent = `${displayValue} ${data.unit}`;
+      valueEl.textContent = `${formatVal(closest.value)} ${data.unit}`;
       valueEl.style.color = closest.color;
+    }
+
+    // Show outdoor value in tooltip if available
+    if (outdoorEl) {
+      if (data.outdoorPoints && data.outdoorPoints.length) {
+        let closestOutdoor = data.outdoorPoints[0];
+        let minOutdoorDist = Math.abs(closestOutdoor.x - targetX);
+        for (const point of data.outdoorPoints) {
+          const dist = Math.abs(point.x - targetX);
+          if (dist < minOutdoorDist) {
+            minOutdoorDist = dist;
+            closestOutdoor = point;
+          }
+        }
+        outdoorEl.textContent = `Outdoor: ${formatVal(closestOutdoor.value)} ${data.unit}`;
+        outdoorEl.style.color = closestOutdoor.color;
+        outdoorEl.style.display = 'block';
+      } else {
+        outdoorEl.style.display = 'none';
+      }
     }
 
     if (timeEl && closest.time) {
@@ -1132,6 +1306,12 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         tvoc_entity: 'tVOC Sensor (optional)',
         humidity_entity: 'Humidity Sensor (optional)',
         temperature_entity: 'Temperature Sensor (optional)',
+        outdoor_co2_entity: 'Outdoor CO₂ Sensor (optional)',
+        outdoor_pm25_entity: 'Outdoor PM2.5 Sensor (optional)',
+        outdoor_hcho_entity: 'Outdoor HCHO Sensor (optional)',
+        outdoor_tvoc_entity: 'Outdoor tVOC Sensor (optional)',
+        outdoor_humidity_entity: 'Outdoor Humidity Sensor (optional)',
+        outdoor_temperature_entity: 'Outdoor Temperature Sensor (optional)',
         air_quality_entity: 'Air Quality Index (optional)',
         recommendation_entity: 'Recommendation Sensor (optional)',
         hours_to_show: 'Graph History (hours)',
@@ -1149,6 +1329,12 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         { name: 'tvoc_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'humidity_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'temperature_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'outdoor_co2_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'outdoor_pm25_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'outdoor_hcho_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'outdoor_tvoc_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'outdoor_humidity_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'outdoor_temperature_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'recommendation_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'hours_to_show', selector: { number: { min: 1, max: 168, mode: 'box' } } },

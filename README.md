@@ -11,6 +11,7 @@ A custom Home Assistant Lovelace card for monitoring indoor air quality with bea
 - **Interactive hover/touch** to see historical values at any point
 - **Health-based thresholds** following WHO 2021 guidelines and ASHRAE standards
 - **Actionable recommendations** like "Open Window" or "Run Air Purifier"
+- **Outdoor sensor comparison** - optional dashed line overlay with smart ventilation recommendations
 - **Tap to expand** - click any graph to open the full Home Assistant history view
 - **Visual configuration editor** - no YAML required
 
@@ -56,6 +57,8 @@ air_quality_entity: sensor.air_quality_index
 recommendation_entity: sensor.air_quality_recommendation
 hours_to_show: 24
 temperature_unit: C
+outdoor_co2_entity: sensor.outdoor_co2
+outdoor_pm25_entity: sensor.outdoor_pm25
 ```
 
 ### Configuration Options
@@ -73,8 +76,23 @@ temperature_unit: C
 | `recommendation_entity` | string | No | - | Recommendation template sensor |
 | `hours_to_show` | number | No | 24 | Hours of history to display (1-168) |
 | `temperature_unit` | string | No | "F" | Temperature unit: "F" (Fahrenheit) or "C" (Celsius) |
+| `outdoor_co2_entity` | string | No | - | Outdoor CO2 sensor for comparison |
+| `outdoor_pm25_entity` | string | No | - | Outdoor PM2.5 sensor for comparison |
+| `outdoor_hcho_entity` | string | No | - | Outdoor HCHO sensor for comparison |
+| `outdoor_tvoc_entity` | string | No | - | Outdoor tVOC sensor for comparison |
+| `outdoor_humidity_entity` | string | No | - | Outdoor humidity sensor for comparison |
+| `outdoor_temperature_entity` | string | No | - | Outdoor temperature sensor for comparison |
 
 \* At least one sensor entity is required. Use any combination that fits your setup.
+
+### Outdoor Sensors
+
+Configure outdoor sensor entities to see a **dashed comparison line** on each graph showing outdoor conditions alongside indoor readings. When outdoor sensors are configured:
+
+- A subtle dashed line appears on the corresponding graph
+- Hovering shows both indoor and outdoor values
+- Current outdoor values appear next to indoor readings
+- **Smart recommendations** avoid suggesting ventilation when outdoor air is worse (e.g., "Keep Windows Closed" instead of "Open Window")
 
 ## Recommendation Sensor
 
