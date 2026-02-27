@@ -1,12 +1,12 @@
 /**
- * Air Quality Card v2.4.0
+ * Air Quality Card v2.4.1
  * A custom Home Assistant card for air quality visualization
  * Thresholds based on WHO 2021 guidelines and ASHRAE standards
  *
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.4.0';
+const CARD_VERSION = '2.4.1';
 
 class AirQualityCard extends HTMLElement {
   // Visual editor using getConfigForm (preferred modern approach)
@@ -69,7 +69,7 @@ class AirQualityCard extends HTMLElement {
             { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
             { name: 'recommendation_entity', selector: { entity: { domain: 'sensor' } } },
             { name: 'hours_to_show', selector: { number: { min: 1, max: 168, mode: 'box', unit_of_measurement: 'hours' } } },
-            { name: 'temperature_unit', selector: { select: { options: [{ value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
+            { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
           ]
         }
       ],
@@ -135,7 +135,7 @@ class AirQualityCard extends HTMLElement {
     this._config = {
       name: 'Air Quality',
       hours_to_show: 24,
-      temperature_unit: 'F',
+      temperature_unit: 'auto',
       ...config
     };
     this._rendered = false;
@@ -288,7 +288,15 @@ class AirQualityCard extends HTMLElement {
   }
 
   _isCelsius() {
-    return this._config.temperature_unit === 'C';
+    const unit = this._config.temperature_unit;
+    if (unit === 'C') return true;
+    if (unit === 'F') return false;
+    // Auto-detect from Home Assistant unit system
+    try {
+      return this._hass.config.unit_system.temperature === '°C';
+    } catch (e) {
+      return false;
+    }
   }
 
   _getTempUnit() {
@@ -1292,7 +1300,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
       this._config = {
         name: 'Air Quality',
         hours_to_show: 24,
-        temperature_unit: 'F',
+        temperature_unit: 'auto',
         ...config
       };
     }
@@ -1338,7 +1346,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'recommendation_entity', selector: { entity: { domain: 'sensor' } } },
         { name: 'hours_to_show', selector: { number: { min: 1, max: 168, mode: 'box' } } },
-        { name: 'temperature_unit', selector: { select: { options: [{ value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } }
+        { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } }
       ];
     }
 
