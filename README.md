@@ -1,5 +1,7 @@
 # Air Quality Card
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?style=flat&logo=buy-me-a-coffee)](https://buymeacoffee.com/kadenthomp36)
+
 A custom Home Assistant Lovelace card for monitoring indoor air quality with beautiful gradient graphs and WHO-based health thresholds.
 
 ![Air Quality Card Preview](https://raw.githubusercontent.com/KadenThomp36/air-quality-card/main/images/preview.png)
@@ -75,7 +77,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `air_quality_entity` | string | No | - | Overall air quality index entity |
 | `recommendation_entity` | string | No | - | Recommendation template sensor |
 | `hours_to_show` | number | No | 24 | Hours of history to display (1-168) |
-| `temperature_unit` | string | No | "F" | Temperature unit: "F" (Fahrenheit) or "C" (Celsius) |
+| `temperature_unit` | string | No | "auto" | Temperature unit: "auto" (detect from HA), "F" (Fahrenheit), or "C" (Celsius) |
 | `outdoor_co2_entity` | string | No | - | Outdoor CO2 sensor for comparison |
 | `outdoor_pm25_entity` | string | No | - | Outdoor PM2.5 sensor for comparison |
 | `outdoor_hcho_entity` | string | No | - | Outdoor HCHO sensor for comparison |
@@ -203,6 +205,16 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=KadenThomp36/air-quality-card&type=Date)](https://star-history.com/#KadenThomp36/air-quality-card&Date)
+
+## Support
+
+If you find this card useful, consider buying me a coffee!
+
+[![Buy Me a Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/kadenthomp36)
 
 ## Credits
 
