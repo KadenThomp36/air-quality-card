@@ -22,14 +22,9 @@ A custom Home Assistant Lovelace card for monitoring indoor air quality with bea
 
 ### HACS (Recommended)
 
-1. Open HACS in Home Assistant
-2. Click on "Frontend"
-3. Click the three dots in the top right and select "Custom repositories"
-4. Add the repository URL: `https://github.com/KadenThomp36/air-quality-card`
-5. Select "Lovelace" as the category
-6. Click "Add"
-7. Search for "Air Quality Card" and install it
-8. Refresh your browser
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=KadenThomp36&repository=air-quality-card&category=plugin)
+
+Or manually: open HACS, search for "Air Quality Card", click Install, and refresh your browser.
 
 ### Manual Installation
 
