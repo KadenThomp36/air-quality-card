@@ -8,6 +8,34 @@
 
 const CARD_VERSION = '2.6.0';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Locale loader — each language lives in locales/<lang>.json.
+// To add a new language: copy locales/en.json, rename it and translate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _CARD_BASE_URL = (() => {
+  const s = document.currentScript ||
+    [...document.querySelectorAll('script')].find(s => s.src && s.src.includes('air-quality-card'));
+  return s && s.src ? s.src.replace(/[^/]*$/, '') : '/hacsfiles/air-quality-card/';
+})();
+
+const _localeCache = {};
+
+async function _loadLocale(lang) {
+  const code = (lang || 'en').split('-')[0].toLowerCase();
+  if (_localeCache[code]) return _localeCache[code];
+  try {
+    const res = await fetch(`${_CARD_BASE_URL}locales/${code}.json`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    _localeCache[code] = await res.json();
+    return _localeCache[code];
+  } catch (e) {
+    if (code !== 'en') return _loadLocale('en');
+    _localeCache['en'] = {};
+    return {};
+  }
+}
+
 class AirQualityCard extends HTMLElement {
   // Visual editor using getConfigForm (preferred modern approach)
   static getConfigForm() {
@@ -30,7 +58,7 @@ class AirQualityCard extends HTMLElement {
         },
         {
           type: 'expandable',
-          title: 'Additional Sensors',
+          title: (this._editorLocale || {}).editor?.section_additional || 'Additional Sensors',
           flatten: true,
           schema: [
             {
@@ -58,7 +86,7 @@ class AirQualityCard extends HTMLElement {
         },
         {
           type: 'expandable',
-          title: 'Outdoor Sensors',
+          title: (this._editorLocale || {}).editor?.section_outdoor || 'Outdoor Sensors',
           flatten: true,
           schema: [
             {
@@ -100,7 +128,7 @@ class AirQualityCard extends HTMLElement {
         },
         {
           type: 'expandable',
-          title: 'Advanced',
+          title: (this._editorLocale || {}).editor?.section_advanced || 'Advanced',
           flatten: true,
           schema: [
             { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
@@ -110,33 +138,10 @@ class AirQualityCard extends HTMLElement {
         }
       ],
       computeLabel: (schema) => {
-        const labels = {
-          name: 'Card Name',
-          co2_entity: 'CO₂ Sensor',
-          pm25_entity: 'PM2.5 Sensor',
-          humidity_entity: 'Humidity Sensor',
-          temperature_entity: 'Temperature Sensor',
-          co_entity: 'CO (Carbon Monoxide) Sensor',
-          hcho_entity: 'Formaldehyde (HCHO) Sensor',
-          tvoc_entity: 'tVOC Sensor',
-          pm1_entity: 'PM1 Sensor',
-          pm10_entity: 'PM10 Sensor',
-          pm03_entity: 'PM0.3 Sensor',
-          outdoor_co2_entity: 'Outdoor CO₂',
-          outdoor_pm25_entity: 'Outdoor PM2.5',
-          outdoor_humidity_entity: 'Outdoor Humidity',
-          outdoor_temperature_entity: 'Outdoor Temperature',
-          outdoor_co_entity: 'Outdoor CO',
-          outdoor_hcho_entity: 'Outdoor HCHO',
-          outdoor_tvoc_entity: 'Outdoor tVOC',
-          outdoor_pm1_entity: 'Outdoor PM1',
-          outdoor_pm10_entity: 'Outdoor PM10',
-          outdoor_pm03_entity: 'Outdoor PM0.3',
-          air_quality_entity: 'Air Quality Index (optional)',
-          hours_to_show: 'Graph History',
-          temperature_unit: 'Temperature Unit'
-        };
-        return labels[schema.name] || schema.name;
+        const name = schema && typeof schema === 'object' ? schema.name : undefined;
+        if (!name || typeof name !== 'string') return ' ';
+        const editor = (this._editorLocale || {}).editor || {};
+        return editor[name] || name;
       }
     };
   }
@@ -158,18 +163,15 @@ class AirQualityCard extends HTMLElement {
     this._historyLoaded = false;
     this._graphData = {};
     this._isDragging = false;
+    this._locale = {};
+    this._initializing = false;
   }
 
   setConfig(config) {
     if (!config) throw new Error('Invalid configuration');
 
-    // Validate that at least one sensor entity is configured
-    const hasEntity = config.co2_entity || config.pm25_entity || config.pm1_entity ||
-      config.pm10_entity || config.pm03_entity || config.hcho_entity ||
-      config.tvoc_entity || config.co_entity || config.humidity_entity || config.temperature_entity;
-    if (!hasEntity) {
-      throw new Error('Please configure at least one sensor entity');
-    }
+    // Do not throw while editing an empty/new card config; let the visual editor open.
+    // Validation is handled naturally by rendering state and user-provided entities.
 
     this._config = {
       name: 'Air Quality',
@@ -183,11 +185,22 @@ class AirQualityCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._rendered) {
-      this._initialRender();
-      this._rendered = true;
-      this._loadHistory();
+    if (!this._rendered && !this._initializing) {
+      this._initializeCard();
+    } else {
+      this._updateStates();
     }
+  }
+
+  async _initializeCard() {
+    this._initializing = true;
+    this._locale = await _loadLocale(this._hass && this._hass.language);
+    // Make the locale available to the static visual editor
+    AirQualityCard._editorLocale = this._locale;
+    this._initialRender();
+    this._rendered = true;
+    this._initializing = false;
+    this._loadHistory();
     this._updateStates();
   }
 
@@ -306,6 +319,19 @@ class AirQualityCard extends HTMLElement {
     return parseFloat(state) || 0;
   }
 
+  // Translate a key: _t('status', 'good') → 'Bueno' (in es)
+  _t(group, key) {
+    return this._locale && this._locale[group] && this._locale[group][key] !== undefined
+      ? this._locale[group][key] : key;
+  }
+
+  // Translate with {placeholder} interpolation: _ts('subtitle', 'co_danger', {value: 42})
+  _ts(group, key, vars) {
+    let str = this._t(group, key);
+    if (vars) Object.keys(vars).forEach(k => { str = str.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]); });
+    return str;
+  }
+
   _getCO2Color(value) {
     if (value < 600) return '#4caf50';
     if (value < 800) return '#8bc34a';
@@ -417,19 +443,20 @@ class AirQualityCard extends HTMLElement {
     // If air_quality_entity is configured, use it
     if (this._config.air_quality_entity) {
       const quality = this._getState(this._config.air_quality_entity);
-      return { status: quality.replace('_', ' '), color: this._getQualityColor(quality) };
+      const statusKey = quality.toLowerCase().replace(/\s+/g, '_');
+      return { status: this._t('status', statusKey), color: this._getQualityColor(quality) };
     }
 
     // CO is a life-safety metric — always takes priority
-    if (co > 35) return { status: 'Dangerous', color: '#d32f2f' };
-    if (co > 9) return { status: 'Poor', color: '#f44336' };
+    if (co > 35) return { status: this._t('status', 'dangerous'), color: '#d32f2f' };
+    if (co > 9) return { status: this._t('status', 'poor'), color: '#f44336' };
 
     // Calculate from CO2 and PM2.5
-    if (co2 > 1500 || pm25 > 35) return { status: 'Poor', color: '#f44336' };
-    if (co2 > 1000 || pm25 > 25) return { status: 'Fair', color: '#ff9800' };
-    if (co2 > 800 || pm25 > 15) return { status: 'Moderate', color: '#ffc107' };
-    if (co2 > 600 || pm25 > 5) return { status: 'Good', color: '#8bc34a' };
-    return { status: 'Excellent', color: '#4caf50' };
+    if (co2 > 1500 || pm25 > 35) return { status: this._t('status', 'poor'), color: '#f44336' };
+    if (co2 > 1000 || pm25 > 25) return { status: this._t('status', 'fair'), color: '#ff9800' };
+    if (co2 > 800 || pm25 > 15) return { status: this._t('status', 'moderate'), color: '#ffc107' };
+    if (co2 > 600 || pm25 > 5) return { status: this._t('status', 'good'), color: '#8bc34a' };
+    return { status: this._t('status', 'excellent'), color: '#4caf50' };
   }
 
   _getQualityColor(quality) {
@@ -461,54 +488,54 @@ class AirQualityCard extends HTMLElement {
     const outdoorIsWorse = (outdoorPm25 !== null && outdoorPm25 > pm25) || (outdoorCo2 !== null && outdoorCo2 > co2);
 
     // Priority waterfall — CO safety first (never suppressed by outdoor override)
-    if (co > 100) return 'CO Danger — Leave Area';
-    if (co > 35) return 'CO Warning — Ventilate Now';
+    if (co > 100) return 'co_danger';
+    if (co > 35) return 'co_warning';
 
-    let rec = 'All Good';
-    if (co2 > 1500) rec = 'Ventilate Now';
-    else if (pm25 > 35) rec = 'Run Air Purifier';
-    else if (pm10 > 150) rec = 'Run Air Purifier';
-    else if (hcho > 100) rec = 'Ventilate — Formaldehyde';
-    else if (tvoc > 500) rec = 'Ventilate — VOCs Elevated';
-    else if (pm25 > 25 && co2 > 1000) rec = 'Air Purifier + Ventilate';
-    else if (pm25 > 25) rec = 'Run Air Purifier';
-    else if (pm10 > 75) rec = 'Consider Air Purifier';
-    else if (co2 > 1000) rec = 'Open Window';
-    else if (co > 9) rec = 'CO Elevated — Ventilate';
-    else if (humidity < 30) rec = 'Too Dry';
-    else if (humidity > 60) rec = 'Too Humid';
-    else if (co2 > 800 || pm25 > 15) rec = 'Consider Ventilating';
+    let rec = 'all_good';
+    if (co2 > 1500) rec = 'ventilate_now';
+    else if (pm25 > 35) rec = 'run_air_purifier';
+    else if (pm10 > 150) rec = 'run_air_purifier';
+    else if (hcho > 100) rec = 'ventilate_formaldehyde';
+    else if (tvoc > 500) rec = 'ventilate_vocs';
+    else if (pm25 > 25 && co2 > 1000) rec = 'air_purifier_ventilate';
+    else if (pm25 > 25) rec = 'run_air_purifier';
+    else if (pm10 > 75) rec = 'consider_air_purifier';
+    else if (co2 > 1000) rec = 'open_window';
+    else if (co > 9) rec = 'co_elevated';
+    else if (humidity < 30) rec = 'too_dry';
+    else if (humidity > 60) rec = 'too_humid';
+    else if (co2 > 800 || pm25 > 15) rec = 'consider_ventilating';
 
     // Override ventilation recommendations if outdoor air is worse
     // CO recommendations are NOT in this list — CO is always a life-safety concern
-    const ventilationRecs = ['Ventilate Now', 'Open Window', 'Consider Ventilating', 'Air Purifier + Ventilate', 'Ventilate — Formaldehyde', 'Ventilate — VOCs Elevated', 'CO Elevated — Ventilate'];
-    if (outdoorIsWorse && ventilationRecs.includes(rec)) {
-      if (pm25 > 25) return 'Run Air Purifier';
-      return 'Keep Windows Closed';
+    const ventilationKeys = ['ventilate_now', 'open_window', 'consider_ventilating', 'air_purifier_ventilate', 'ventilate_formaldehyde', 'ventilate_vocs', 'co_elevated'];
+    if (outdoorIsWorse && ventilationKeys.includes(rec)) {
+      if (pm25 > 25) return 'run_air_purifier';
+      return 'keep_windows_closed';
     }
 
     return rec;
   }
 
-  _getRecommendationIcon(rec) {
+  _getRecommendationIcon(recKey) {
     const icons = {
-      'All Good': 'mdi:check-circle',
-      'Consider Ventilating': 'mdi:information',
-      'Open Window': 'mdi:window-open-variant',
-      'Run Air Purifier': 'mdi:air-purifier',
-      'Consider Air Purifier': 'mdi:air-purifier',
-      'Air Purifier + Ventilate': 'mdi:alert',
-      'Ventilate Now': 'mdi:alert-circle',
-      'Ventilate — Formaldehyde': 'mdi:alert-circle',
-      'Ventilate — VOCs Elevated': 'mdi:alert-circle',
-      'CO Danger — Leave Area': 'mdi:alert-octagon',
-      'CO Warning — Ventilate Now': 'mdi:alert-octagon',
-      'CO Elevated — Ventilate': 'mdi:alert',
-      'Keep Windows Closed': 'mdi:window-closed-variant',
-      'Too Dry': 'mdi:water-percent',
-      'Too Humid': 'mdi:water'
+      'all_good': 'mdi:check-circle',
+      'consider_ventilating': 'mdi:information',
+      'open_window': 'mdi:window-open-variant',
+      'run_air_purifier': 'mdi:air-purifier',
+      'consider_air_purifier': 'mdi:air-purifier',
+      'air_purifier_ventilate': 'mdi:alert',
+      'ventilate_now': 'mdi:alert-circle',
+      'ventilate_formaldehyde': 'mdi:alert-circle',
+      'ventilate_vocs': 'mdi:alert-circle',
+      'co_danger': 'mdi:alert-octagon',
+      'co_warning': 'mdi:alert-octagon',
+      'co_elevated': 'mdi:alert',
+      'keep_windows_closed': 'mdi:window-closed-variant',
+      'too_dry': 'mdi:water-percent',
+      'too_humid': 'mdi:water'
     };
-    return icons[rec] || 'mdi:air-filter';
+    return icons[recKey] || 'mdi:air-filter';
   }
 
   _initialRender() {
@@ -746,15 +773,15 @@ class AirQualityCard extends HTMLElement {
             <span class="title">${this._config.name}</span>
             <div class="status-badge" id="status-badge">
               <ha-icon id="status-icon" icon="mdi:leaf"></ha-icon>
-              <span id="status-text">Good</span>
+              <span id="status-text">${this._t('status', 'good')}</span>
             </div>
           </div>
 
           <div class="recommendation" id="recommendation">
             <ha-icon id="rec-icon" icon="mdi:check-circle"></ha-icon>
             <div class="recommendation-text">
-              <div class="recommendation-title" id="rec-title">All Good</div>
-              <div class="recommendation-subtitle" id="rec-subtitle">Air quality is within healthy limits</div>
+              <div class="recommendation-title" id="rec-title">${this._t('recommendation', 'all_good')}</div>
+              <div class="recommendation-subtitle" id="rec-subtitle">${this._t('subtitle', 'air_quality_healthy')}</div>
             </div>
           </div>
 
@@ -930,7 +957,7 @@ class AirQualityCard extends HTMLElement {
             ${showHumidity ? `
             <div class="graph-container" id="humidity-graph-container" data-entity="${this._config.humidity_entity}">
               <div class="graph-header">
-                <span class="graph-label">Humidity</span>
+                <span class="graph-label">${this._t('graph_label', 'humidity')}</span>
                 <span class="graph-value" id="humidity-value">-- <span class="unit">%</span><span class="status" id="humidity-status"></span></span>
               </div>
               <div class="graph-wrapper">
@@ -951,7 +978,7 @@ class AirQualityCard extends HTMLElement {
             ${showTemp ? `
             <div class="graph-container" id="temperature-graph-container" data-entity="${this._config.temperature_entity}">
               <div class="graph-header">
-                <span class="graph-label">Temperature</span>
+                <span class="graph-label">${this._t('graph_label', 'temperature')}</span>
                 <span class="graph-value" id="temperature-value">-- <span class="unit">${this._getTempUnit()}</span><span class="status" id="temperature-status"></span></span>
               </div>
               <div class="graph-wrapper">
@@ -987,7 +1014,7 @@ class AirQualityCard extends HTMLElement {
     const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : null;
     const humidity = this._config.humidity_entity ? this._getNumericState(this._config.humidity_entity) : null;
     const temp = this._config.temperature_entity ? this._getNumericState(this._config.temperature_entity) : null;
-    const recommendation = this._getRecommendation();
+    const recKey = this._getRecommendation();
     const overall = this._getOverallStatus();
 
     // Update status badge
@@ -1008,59 +1035,59 @@ class AirQualityCard extends HTMLElement {
     const recSubtitle = this.shadowRoot.getElementById('rec-subtitle');
     const recContainer = this.shadowRoot.getElementById('recommendation');
 
-    if (recIcon && recommendation) {
-      recIcon.setAttribute('icon', this._getRecommendationIcon(recommendation));
-      recTitle.textContent = recommendation;
+    if (recIcon && recKey) {
+      recIcon.setAttribute('icon', this._getRecommendationIcon(recKey));
+      recTitle.textContent = this._t('recommendation', recKey);
 
       let subtitle = '';
-      if (recommendation === 'CO Danger — Leave Area') {
-        subtitle = co !== null ? `CO at ${co.toFixed(0)} ppm — dangerous levels detected` : 'Dangerous CO levels';
-      } else if (recommendation === 'CO Warning — Ventilate Now') {
-        subtitle = co !== null ? `CO at ${co.toFixed(0)} ppm — open all windows immediately` : 'High CO levels';
-      } else if (recommendation === 'CO Elevated — Ventilate') {
-        subtitle = co !== null ? `CO at ${co.toFixed(0)} ppm — improve ventilation` : 'CO levels elevated';
-      } else if (recommendation === 'All Good') {
-        subtitle = 'Air quality is within healthy limits';
-      } else if (recommendation === 'Run Air Purifier') {
-        if (pm25 !== null && pm25 > 35) subtitle = `PM2.5 at ${pm25.toFixed(0)} μg/m³ - filter the air`;
-        else if (pm10 !== null && pm10 > 150) subtitle = `PM10 at ${pm10.toFixed(0)} μg/m³ - filter the air`;
-        else if (pm25 !== null) subtitle = `PM2.5 at ${pm25.toFixed(0)} μg/m³ - filter the air`;
-        else subtitle = 'Particulate levels elevated';
-      } else if (recommendation === 'Consider Air Purifier' && pm10 !== null) {
-        subtitle = `PM10 at ${pm10.toFixed(0)} μg/m³`;
-      } else if (recommendation === 'Open Window' && co2 !== null) {
-        subtitle = `CO₂ at ${Math.round(co2)} ppm - fresh air needed`;
-      } else if (recommendation === 'Air Purifier + Ventilate' && co2 !== null && pm25 !== null) {
-        subtitle = `CO₂: ${Math.round(co2)} ppm, PM2.5: ${pm25.toFixed(0)} μg/m³`;
-      } else if (recommendation === 'Ventilate Now' && co2 !== null) {
-        subtitle = `CO₂ at ${Math.round(co2)} ppm - may affect focus`;
-      } else if (recommendation === 'Ventilate — Formaldehyde') {
+      if (recKey === 'co_danger') {
+        subtitle = co !== null ? this._ts('subtitle', 'co_danger', {value: co.toFixed(0)}) : this._t('subtitle', 'co_danger_unknown');
+      } else if (recKey === 'co_warning') {
+        subtitle = co !== null ? this._ts('subtitle', 'co_warning', {value: co.toFixed(0)}) : this._t('subtitle', 'co_warning_unknown');
+      } else if (recKey === 'co_elevated') {
+        subtitle = co !== null ? this._ts('subtitle', 'co_elevated', {value: co.toFixed(0)}) : this._t('subtitle', 'co_elevated_unknown');
+      } else if (recKey === 'all_good') {
+        subtitle = this._t('subtitle', 'air_quality_healthy');
+      } else if (recKey === 'run_air_purifier') {
+        if (pm25 !== null && pm25 > 35) subtitle = this._ts('subtitle', 'purifier_pm25', {value: pm25.toFixed(0)});
+        else if (pm10 !== null && pm10 > 150) subtitle = this._ts('subtitle', 'purifier_pm10', {value: pm10.toFixed(0)});
+        else if (pm25 !== null) subtitle = this._ts('subtitle', 'purifier_pm25', {value: pm25.toFixed(0)});
+        else subtitle = this._t('subtitle', 'purifier_generic');
+      } else if (recKey === 'consider_air_purifier' && pm10 !== null) {
+        subtitle = this._ts('subtitle', 'consider_purifier_pm10', {value: pm10.toFixed(0)});
+      } else if (recKey === 'open_window' && co2 !== null) {
+        subtitle = this._ts('subtitle', 'open_window_co2', {value: Math.round(co2)});
+      } else if (recKey === 'air_purifier_ventilate' && co2 !== null && pm25 !== null) {
+        subtitle = this._ts('subtitle', 'purifier_ventilate', {co2: Math.round(co2), pm25: pm25.toFixed(0)});
+      } else if (recKey === 'ventilate_now' && co2 !== null) {
+        subtitle = this._ts('subtitle', 'ventilate_now_co2', {value: Math.round(co2)});
+      } else if (recKey === 'ventilate_formaldehyde') {
         const hcho = this._config.hcho_entity ? this._getNumericState(this._config.hcho_entity) : null;
-        subtitle = hcho !== null ? `HCHO at ${hcho.toFixed(0)} ppb - ventilation needed` : 'Formaldehyde levels elevated';
-      } else if (recommendation === 'Ventilate — VOCs Elevated') {
+        subtitle = hcho !== null ? this._ts('subtitle', 'ventilate_formaldehyde', {value: hcho.toFixed(0)}) : this._t('subtitle', 'ventilate_formaldehyde_unknown');
+      } else if (recKey === 'ventilate_vocs') {
         const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : null;
-        subtitle = tvoc !== null ? `tVOC at ${tvoc.toFixed(0)} ppb - ventilation needed` : 'VOC levels elevated';
-      } else if (recommendation === 'Too Dry' && humidity !== null) {
-        subtitle = `Humidity at ${Math.round(humidity)}% - consider humidifier`;
-      } else if (recommendation === 'Too Humid' && humidity !== null) {
-        subtitle = `Humidity at ${Math.round(humidity)}% - ventilate`;
-      } else if (recommendation === 'Consider Ventilating') {
-        if (co2 !== null && co2 > 800) subtitle = `CO₂ at ${Math.round(co2)} ppm`;
-        else if (pm25 !== null && pm25 > 15) subtitle = `PM2.5 at ${pm25.toFixed(0)} μg/m³`;
-        else subtitle = 'Slightly elevated levels';
-      } else if (recommendation === 'Keep Windows Closed') {
+        subtitle = tvoc !== null ? this._ts('subtitle', 'ventilate_vocs', {value: tvoc.toFixed(0)}) : this._t('subtitle', 'ventilate_vocs_unknown');
+      } else if (recKey === 'too_dry' && humidity !== null) {
+        subtitle = this._ts('subtitle', 'too_dry', {value: Math.round(humidity)});
+      } else if (recKey === 'too_humid' && humidity !== null) {
+        subtitle = this._ts('subtitle', 'too_humid', {value: Math.round(humidity)});
+      } else if (recKey === 'consider_ventilating') {
+        if (co2 !== null && co2 > 800) subtitle = this._ts('subtitle', 'consider_ventilating_co2', {value: Math.round(co2)});
+        else if (pm25 !== null && pm25 > 15) subtitle = this._ts('subtitle', 'consider_ventilating_pm25', {value: pm25.toFixed(0)});
+        else subtitle = this._t('subtitle', 'consider_ventilating_generic');
+      } else if (recKey === 'keep_windows_closed') {
         const outdoorPm25 = this._config.outdoor_pm25_entity ? this._getNumericState(this._config.outdoor_pm25_entity) : null;
         const outdoorCo2 = this._config.outdoor_co2_entity ? this._getNumericState(this._config.outdoor_co2_entity) : null;
-        if (outdoorPm25 !== null && outdoorPm25 > 35) subtitle = `Outdoor PM2.5 at ${outdoorPm25.toFixed(0)} μg/m³ - poor outdoor air`;
-        else if (outdoorPm25 !== null) subtitle = `Outdoor PM2.5 at ${outdoorPm25.toFixed(0)} μg/m³ - worse than indoor`;
-        else if (outdoorCo2 !== null) subtitle = `Outdoor CO₂ at ${Math.round(outdoorCo2)} ppm - worse than indoor`;
-        else subtitle = 'Outdoor air quality is worse than indoor';
+        if (outdoorPm25 !== null && outdoorPm25 > 35) subtitle = this._ts('subtitle', 'keep_closed_outdoor_pm25_poor', {value: outdoorPm25.toFixed(0)});
+        else if (outdoorPm25 !== null) subtitle = this._ts('subtitle', 'keep_closed_outdoor_pm25', {value: outdoorPm25.toFixed(0)});
+        else if (outdoorCo2 !== null) subtitle = this._ts('subtitle', 'keep_closed_outdoor_co2', {value: Math.round(outdoorCo2)});
+        else subtitle = this._t('subtitle', 'keep_closed_generic');
       }
       recSubtitle.textContent = subtitle;
 
-      const isGood = recommendation === 'All Good';
-      const isCritical = ['CO Danger — Leave Area', 'CO Warning — Ventilate Now'].includes(recommendation);
-      const isPoor = ['Run Air Purifier', 'Open Window', 'Ventilate Now', 'Air Purifier + Ventilate', 'Keep Windows Closed', 'Ventilate — Formaldehyde', 'Ventilate — VOCs Elevated', 'CO Elevated — Ventilate', 'Consider Air Purifier'].includes(recommendation);
+      const isGood = recKey === 'all_good';
+      const isCritical = ['co_danger', 'co_warning'].includes(recKey);
+      const isPoor = ['run_air_purifier', 'open_window', 'ventilate_now', 'air_purifier_ventilate', 'keep_windows_closed', 'ventilate_formaldehyde', 'ventilate_vocs', 'co_elevated', 'consider_air_purifier'].includes(recKey);
       recIcon.style.color = isGood ? 'var(--aq-excellent)' : (isCritical ? 'var(--aq-very-poor)' : (isPoor ? 'var(--aq-poor)' : 'var(--aq-moderate)'));
       recContainer.style.background = isGood ?
         'rgba(76, 175, 80, 0.1)' : (isCritical ? 'rgba(244, 67, 54, 0.15)' : (isPoor ? 'rgba(255, 152, 0, 0.15)' : 'rgba(255, 193, 7, 0.1)'));
@@ -1070,7 +1097,7 @@ class AirQualityCard extends HTMLElement {
     const outdoorSuffix = (entityKey, value, unit) => {
       if (!this._config[entityKey]) return '';
       const val = this._getNumericState(this._config[entityKey]);
-      return ` <span class="outdoor-value">(out: ${unit === 'μg/m³' || unit === 'ppb' ? val.toFixed(1) : Math.round(val)} ${unit})</span>`;
+      return ` <span class="outdoor-value">(${this._t('tooltip', 'outdoor')}: ${unit === 'μg/m³' || unit === 'ppb' ? val.toFixed(1) : Math.round(val)} ${unit})</span>`;
     };
 
     // Update CO
@@ -1080,7 +1107,7 @@ class AirQualityCard extends HTMLElement {
       if (coValueEl) {
         coValueEl.innerHTML = `${co.toFixed(1)} <span class="unit">ppm</span><span class="status" id="co-status"></span>${outdoorSuffix('outdoor_co_entity', co, 'ppm')}`;
         const statusEl = coValueEl.querySelector('.status');
-        statusEl.textContent = co < 4 ? 'Safe' : co < 9 ? 'Low' : co < 35 ? 'Moderate' : co < 100 ? 'High' : 'Dangerous';
+        statusEl.textContent = co < 4 ? this._t('sensor_status', 'safe') : co < 9 ? this._t('sensor_status', 'low') : co < 35 ? this._t('sensor_status', 'moderate') : co < 100 ? this._t('sensor_status', 'high') : this._t('sensor_status', 'dangerous');
         statusEl.style.background = coColor + '22';
         statusEl.style.color = coColor;
         coValueEl.style.color = coColor;
@@ -1094,7 +1121,7 @@ class AirQualityCard extends HTMLElement {
       if (co2ValueEl) {
         co2ValueEl.innerHTML = `${Math.round(co2)} <span class="unit">ppm</span><span class="status" id="co2-status"></span>${outdoorSuffix('outdoor_co2_entity', co2, 'ppm')}`;
         const statusEl = co2ValueEl.querySelector('.status');
-        statusEl.textContent = co2 < 800 ? 'Excellent' : co2 < 1000 ? 'Good' : co2 < 1500 ? 'Elevated' : 'Poor';
+        statusEl.textContent = co2 < 800 ? this._t('sensor_status', 'excellent') : co2 < 1000 ? this._t('sensor_status', 'good') : co2 < 1500 ? this._t('sensor_status', 'elevated') : this._t('sensor_status', 'poor');
         statusEl.style.background = co2Color + '22';
         statusEl.style.color = co2Color;
         co2ValueEl.style.color = co2Color;
@@ -1108,7 +1135,7 @@ class AirQualityCard extends HTMLElement {
       if (pm25ValueEl) {
         pm25ValueEl.innerHTML = `${pm25.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm25-status"></span>${outdoorSuffix('outdoor_pm25_entity', pm25, 'μg/m³')}`;
         const statusEl = pm25ValueEl.querySelector('.status');
-        statusEl.textContent = pm25 < 5 ? 'Excellent' : pm25 < 15 ? 'Good' : pm25 < 25 ? 'Moderate' : pm25 < 35 ? 'Elevated' : 'Poor';
+        statusEl.textContent = pm25 < 5 ? this._t('sensor_status', 'excellent') : pm25 < 15 ? this._t('sensor_status', 'good') : pm25 < 25 ? this._t('sensor_status', 'moderate') : pm25 < 35 ? this._t('sensor_status', 'elevated') : this._t('sensor_status', 'poor');
         statusEl.style.background = pm25Color + '22';
         statusEl.style.color = pm25Color;
         pm25ValueEl.style.color = pm25Color;
@@ -1122,7 +1149,7 @@ class AirQualityCard extends HTMLElement {
       if (pm10ValueEl) {
         pm10ValueEl.innerHTML = `${pm10.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm10-status"></span>${outdoorSuffix('outdoor_pm10_entity', pm10, 'μg/m³')}`;
         const statusEl = pm10ValueEl.querySelector('.status');
-        statusEl.textContent = pm10 < 15 ? 'Excellent' : pm10 < 45 ? 'Good' : pm10 < 75 ? 'Moderate' : pm10 < 150 ? 'Elevated' : 'Poor';
+        statusEl.textContent = pm10 < 15 ? this._t('sensor_status', 'excellent') : pm10 < 45 ? this._t('sensor_status', 'good') : pm10 < 75 ? this._t('sensor_status', 'moderate') : pm10 < 150 ? this._t('sensor_status', 'elevated') : this._t('sensor_status', 'poor');
         statusEl.style.background = pm10Color + '22';
         statusEl.style.color = pm10Color;
         pm10ValueEl.style.color = pm10Color;
@@ -1136,7 +1163,7 @@ class AirQualityCard extends HTMLElement {
       if (pm1ValueEl) {
         pm1ValueEl.innerHTML = `${pm1.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm1-status"></span>${outdoorSuffix('outdoor_pm1_entity', pm1, 'μg/m³')}`;
         const statusEl = pm1ValueEl.querySelector('.status');
-        statusEl.textContent = pm1 < 5 ? 'Excellent' : pm1 < 15 ? 'Good' : pm1 < 25 ? 'Moderate' : pm1 < 35 ? 'Elevated' : 'Poor';
+        statusEl.textContent = pm1 < 5 ? this._t('sensor_status', 'excellent') : pm1 < 15 ? this._t('sensor_status', 'good') : pm1 < 25 ? this._t('sensor_status', 'moderate') : pm1 < 35 ? this._t('sensor_status', 'elevated') : this._t('sensor_status', 'poor');
         statusEl.style.background = pm1Color + '22';
         statusEl.style.color = pm1Color;
         pm1ValueEl.style.color = pm1Color;
@@ -1150,7 +1177,7 @@ class AirQualityCard extends HTMLElement {
       if (pm03ValueEl) {
         pm03ValueEl.innerHTML = `${Math.round(pm03)} <span class="unit">p/0.1L</span><span class="status" id="pm03-status"></span>${outdoorSuffix('outdoor_pm03_entity', pm03, 'p/0.1L')}`;
         const statusEl = pm03ValueEl.querySelector('.status');
-        statusEl.textContent = pm03 < 500 ? 'Clean' : pm03 < 1000 ? 'Good' : pm03 < 3000 ? 'Moderate' : pm03 < 5000 ? 'Elevated' : 'Poor';
+        statusEl.textContent = pm03 < 500 ? this._t('sensor_status', 'clean') : pm03 < 1000 ? this._t('sensor_status', 'good') : pm03 < 3000 ? this._t('sensor_status', 'moderate') : pm03 < 5000 ? this._t('sensor_status', 'elevated') : this._t('sensor_status', 'poor');
         statusEl.style.background = pm03Color + '22';
         statusEl.style.color = pm03Color;
         pm03ValueEl.style.color = pm03Color;
@@ -1164,7 +1191,7 @@ class AirQualityCard extends HTMLElement {
       if (hchoValueEl) {
         hchoValueEl.innerHTML = `${hcho.toFixed(1)} <span class="unit">ppb</span><span class="status" id="hcho-status"></span>${outdoorSuffix('outdoor_hcho_entity', hcho, 'ppb')}`;
         const statusEl = hchoValueEl.querySelector('.status');
-        statusEl.textContent = hcho < 20 ? 'Excellent' : hcho < 50 ? 'Good' : hcho < 100 ? 'Moderate' : hcho < 200 ? 'Elevated' : 'Poor';
+        statusEl.textContent = hcho < 20 ? this._t('sensor_status', 'excellent') : hcho < 50 ? this._t('sensor_status', 'good') : hcho < 100 ? this._t('sensor_status', 'moderate') : hcho < 200 ? this._t('sensor_status', 'elevated') : this._t('sensor_status', 'poor');
         statusEl.style.background = hchoColor + '22';
         statusEl.style.color = hchoColor;
         hchoValueEl.style.color = hchoColor;
@@ -1178,7 +1205,7 @@ class AirQualityCard extends HTMLElement {
       if (tvocValueEl) {
         tvocValueEl.innerHTML = `${tvoc.toFixed(1)} <span class="unit">ppb</span><span class="status" id="tvoc-status"></span>${outdoorSuffix('outdoor_tvoc_entity', tvoc, 'ppb')}`;
         const statusEl = tvocValueEl.querySelector('.status');
-        statusEl.textContent = tvoc < 100 ? 'Excellent' : tvoc < 300 ? 'Good' : tvoc < 500 ? 'Moderate' : tvoc < 1000 ? 'Elevated' : 'Poor';
+        statusEl.textContent = tvoc < 100 ? this._t('sensor_status', 'excellent') : tvoc < 300 ? this._t('sensor_status', 'good') : tvoc < 500 ? this._t('sensor_status', 'moderate') : tvoc < 1000 ? this._t('sensor_status', 'elevated') : this._t('sensor_status', 'poor');
         statusEl.style.background = tvocColor + '22';
         statusEl.style.color = tvocColor;
         tvocValueEl.style.color = tvocColor;
@@ -1192,11 +1219,11 @@ class AirQualityCard extends HTMLElement {
       if (humidityValueEl) {
         humidityValueEl.innerHTML = `${Math.round(humidity)} <span class="unit">%</span><span class="status" id="humidity-status"></span>${outdoorSuffix('outdoor_humidity_entity', humidity, '%')}`;
         const statusEl = humidityValueEl.querySelector('.status');
-        let humidityStatus = 'Comfortable';
-        if (humidity < 30) humidityStatus = 'Too Dry';
-        else if (humidity < 40) humidityStatus = 'Dry';
-        else if (humidity > 60) humidityStatus = 'Too Humid';
-        else if (humidity > 50) humidityStatus = 'Humid';
+        let humidityStatus = this._t('sensor_status', 'comfortable');
+        if (humidity < 30) humidityStatus = this._t('sensor_status', 'too_dry');
+        else if (humidity < 40) humidityStatus = this._t('sensor_status', 'dry');
+        else if (humidity > 60) humidityStatus = this._t('sensor_status', 'too_humid');
+        else if (humidity > 50) humidityStatus = this._t('sensor_status', 'humid');
         statusEl.textContent = humidityStatus;
         statusEl.style.background = humidityColor + '22';
         statusEl.style.color = humidityColor;
@@ -1212,17 +1239,17 @@ class AirQualityCard extends HTMLElement {
       if (tempValueEl) {
         tempValueEl.innerHTML = `${Math.round(temp)} <span class="unit">${tempUnit}</span><span class="status" id="temperature-status"></span>${outdoorSuffix('outdoor_temperature_entity', temp, tempUnit)}`;
         const statusEl = tempValueEl.querySelector('.status');
-        let tempStatus = 'Comfortable';
+        let tempStatus = this._t('sensor_status', 'comfortable');
         if (this._isCelsius()) {
-          if (temp < 18) tempStatus = 'Cold';
-          else if (temp < 20) tempStatus = 'Cool';
-          else if (temp > 24) tempStatus = 'Hot';
-          else if (temp > 22) tempStatus = 'Warm';
+          if (temp < 18) tempStatus = this._t('sensor_status', 'cold');
+          else if (temp < 20) tempStatus = this._t('sensor_status', 'cool');
+          else if (temp > 24) tempStatus = this._t('sensor_status', 'hot');
+          else if (temp > 22) tempStatus = this._t('sensor_status', 'warm');
         } else {
-          if (temp < 65) tempStatus = 'Cold';
-          else if (temp < 68) tempStatus = 'Cool';
-          else if (temp > 76) tempStatus = 'Hot';
-          else if (temp > 72) tempStatus = 'Warm';
+          if (temp < 65) tempStatus = this._t('sensor_status', 'cold');
+          else if (temp < 68) tempStatus = this._t('sensor_status', 'cool');
+          else if (temp > 76) tempStatus = this._t('sensor_status', 'hot');
+          else if (temp > 72) tempStatus = this._t('sensor_status', 'warm');
         }
         statusEl.textContent = tempStatus;
         statusEl.style.background = tempColor + '22';
@@ -1525,7 +1552,7 @@ class AirQualityCard extends HTMLElement {
             closestOutdoor = point;
           }
         }
-        outdoorEl.textContent = `Outdoor: ${formatVal(closestOutdoor.value)} ${data.unit}`;
+        outdoorEl.textContent = `${this._t('tooltip', 'outdoor')}: ${formatVal(closestOutdoor.value)} ${data.unit}`;
         outdoorEl.style.color = closestOutdoor.color;
         outdoorEl.style.display = 'block';
       } else {
