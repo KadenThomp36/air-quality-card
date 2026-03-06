@@ -6,7 +6,7 @@
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.6.1';
+const CARD_VERSION = '2.7.0';
 
 class AirQualityCard extends HTMLElement {
   static getConfigElement() {
@@ -26,7 +26,7 @@ class AirQualityCard extends HTMLElement {
     this._config = {};
     this._hass = null;
     this._rendered = false;
-    this._history = { co2: [], pm25: [], pm1: [], pm10: [], pm03: [], hcho: [], tvoc: [], co: [], humidity: [], temperature: [], outdoor_co2: [], outdoor_pm25: [], outdoor_pm1: [], outdoor_pm10: [], outdoor_pm03: [], outdoor_hcho: [], outdoor_tvoc: [], outdoor_co: [], outdoor_humidity: [], outdoor_temperature: [] };
+    this._history = { co2: [], pm25: [], pm1: [], pm10: [], pm03: [], hcho: [], tvoc: [], co: [], radon: [], humidity: [], temperature: [], outdoor_co2: [], outdoor_pm25: [], outdoor_pm1: [], outdoor_pm10: [], outdoor_pm03: [], outdoor_hcho: [], outdoor_tvoc: [], outdoor_co: [], outdoor_humidity: [], outdoor_temperature: [] };
     this._historyLoaded = false;
     this._graphData = {};
     this._isDragging = false;
@@ -38,7 +38,8 @@ class AirQualityCard extends HTMLElement {
     // Validate that at least one sensor entity is configured
     const hasEntity = config.co2_entity || config.pm25_entity || config.pm1_entity ||
       config.pm10_entity || config.pm03_entity || config.hcho_entity ||
-      config.tvoc_entity || config.co_entity || config.humidity_entity || config.temperature_entity;
+      config.tvoc_entity || config.co_entity || config.radon_entity ||
+      config.humidity_entity || config.temperature_entity;
     if (!hasEntity) {
       throw new Error('Please configure at least one sensor entity');
     }
@@ -47,6 +48,7 @@ class AirQualityCard extends HTMLElement {
       name: 'Air Quality',
       hours_to_show: 24,
       temperature_unit: 'auto',
+      radon_unit: 'auto',
       ...config
     };
     this._rendered = false;
@@ -66,6 +68,7 @@ class AirQualityCard extends HTMLElement {
   getCardSize() {
     let size = 3; // Base size for header and recommendation
     if (this._config.co_entity) size += 1;
+    if (this._config.radon_entity) size += 1;
     if (this._config.co2_entity) size += 1;
     if (this._config.pm25_entity) size += 1;
     if (this._config.pm10_entity) size += 1;
@@ -91,6 +94,10 @@ class AirQualityCard extends HTMLElement {
       if (this._config.co_entity) {
         promises.push(this._fetchHistory(this._config.co_entity, startTime, endTime));
         keys.push('co');
+      }
+      if (this._config.radon_entity) {
+        promises.push(this._fetchHistory(this._config.radon_entity, startTime, endTime));
+        keys.push('radon');
       }
       if (this._config.co2_entity) {
         promises.push(this._fetchHistory(this._config.co2_entity, startTime, endTime));
@@ -250,6 +257,66 @@ class AirQualityCard extends HTMLElement {
     return '#f44336';
   }
 
+  _getRadonColor(bq) {
+    if (bq < 48) return '#4caf50';
+    if (bq < 100) return '#8bc34a';
+    if (bq < 148) return '#ffc107';
+    if (bq < 300) return '#ff9800';
+    return '#f44336';
+  }
+
+  _getRadonUnit() {
+    const unit = this._config.radon_unit;
+    if (unit === 'pCi/L') return 'pCi/L';
+    if (unit === 'Bq/m³') return 'Bq/m³';
+    // Auto-detect from entity's unit_of_measurement
+    if (this._config.radon_entity) {
+      const entityUnit = this._hass?.states[this._config.radon_entity]?.attributes?.unit_of_measurement;
+      if (entityUnit && entityUnit.toLowerCase().includes('pci')) return 'pCi/L';
+    }
+    return 'Bq/m³';
+  }
+
+  _isRadonPciL() {
+    return this._getRadonUnit() === 'pCi/L';
+  }
+
+  _getRadonBqm3(value) {
+    if (this._isRadonPciL()) return value * 37;
+    return value;
+  }
+
+  _formatRadon(value) {
+    const unit = this._getRadonUnit();
+    if (unit === 'pCi/L') return `${value.toFixed(1)} pCi/L`;
+    return `${Math.round(value)} Bq/m³`;
+  }
+
+  _getRadonAdvisory() {
+    if (!this._config.radon_entity) return null;
+    const raw = this._getNumericState(this._config.radon_entity);
+    const bq = this._getRadonBqm3(raw);
+    const display = this._formatRadon(raw);
+    const threshold = this._isRadonPciL() ? '4.0 pCi/L' : '148 Bq/m³';
+
+    if (bq >= 300) return {
+      level: 'danger',
+      text: 'Radon High \u2014 Mitigation Needed',
+      subtitle: `Radon at ${display} \u2014 contact a certified radon mitigator`
+    };
+    if (bq >= 148) return {
+      level: 'warning',
+      text: 'Radon Above EPA Action Level',
+      subtitle: `Radon at ${display} \u2014 EPA recommends mitigation above ${threshold}`
+    };
+    if (bq >= 100) return {
+      level: 'info',
+      text: 'Radon \u2014 Monitor Closely',
+      subtitle: `Radon at ${display} \u2014 approaching action level`
+    };
+    return null;
+  }
+
   _isCelsius() {
     const unit = this._config.temperature_unit;
     if (unit === 'C') return true;
@@ -285,6 +352,7 @@ class AirQualityCard extends HTMLElement {
     const co = this._config.co_entity ? this._getNumericState(this._config.co_entity) : 0;
     const co2 = this._config.co2_entity ? this._getNumericState(this._config.co2_entity) : 0;
     const pm25 = this._config.pm25_entity ? this._getNumericState(this._config.pm25_entity) : 0;
+    const radon = this._config.radon_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_entity)) : 0;
 
     // If air_quality_entity is configured, use it
     if (this._config.air_quality_entity) {
@@ -295,6 +363,10 @@ class AirQualityCard extends HTMLElement {
     // CO is a life-safety metric — always takes priority
     if (co > 35) return { status: 'Dangerous', color: '#d32f2f' };
     if (co > 9) return { status: 'Poor', color: '#f44336' };
+
+    // Radon — only degrades status at EPA action level and above
+    if (radon >= 300) return { status: 'Poor', color: '#f44336' };
+    if (radon >= 148) return { status: 'Fair', color: '#ff9800' };
 
     // Calculate from CO2 and PM2.5
     if (co2 > 1500 || pm25 > 35) return { status: 'Poor', color: '#f44336' };
@@ -385,6 +457,7 @@ class AirQualityCard extends HTMLElement {
 
   _initialRender() {
     const showCO = !!this._config.co_entity;
+    const showRadon = !!this._config.radon_entity;
     const showCO2 = !!this._config.co2_entity;
     const showPM25 = !!this._config.pm25_entity;
     const showPM10 = !!this._config.pm10_entity;
@@ -462,6 +535,38 @@ class AirQualityCard extends HTMLElement {
 
         .recommendation-subtitle {
           font-size: 0.8em;
+          color: var(--secondary-text-color);
+          margin-top: 1px;
+        }
+
+        .radon-advisory {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 14px;
+          border-radius: 8px;
+          margin-bottom: 14px;
+          border-left: 3px solid var(--aq-moderate);
+          background: var(--secondary-background-color);
+          font-size: 0.9em;
+        }
+
+        .radon-advisory ha-icon {
+          --mdc-icon-size: 20px;
+          flex-shrink: 0;
+        }
+
+        .radon-advisory-text {
+          flex: 1;
+        }
+
+        .radon-advisory-title {
+          font-weight: 600;
+          font-size: 0.9em;
+        }
+
+        .radon-advisory-subtitle {
+          font-size: 0.75em;
           color: var(--secondary-text-color);
           margin-top: 1px;
         }
@@ -630,6 +735,14 @@ class AirQualityCard extends HTMLElement {
             </div>
           </div>
 
+          <div class="radon-advisory" id="radon-advisory" style="display:none">
+            <ha-icon id="radon-advisory-icon" icon="mdi:radioactive"></ha-icon>
+            <div class="radon-advisory-text">
+              <div class="radon-advisory-title" id="radon-advisory-title"></div>
+              <div class="radon-advisory-subtitle" id="radon-advisory-subtitle"></div>
+            </div>
+          </div>
+
           <div class="graphs">
             ${showCO ? `
             <div class="graph-container" id="co-graph-container" data-entity="${this._config.co_entity}">
@@ -649,6 +762,26 @@ class AirQualityCard extends HTMLElement {
                 </div>
               </div>
               <div class="graph-time-axis" id="co-time-axis"></div>
+            </div>
+            ` : ''}
+
+            ${showRadon ? `
+            <div class="graph-container" id="radon-graph-container" data-entity="${this._config.radon_entity}">
+              <div class="graph-header">
+                <span class="graph-label">Radon</span>
+                <span class="graph-value" id="radon-value">-- <span class="unit">${this._getRadonUnit()}</span><span class="status" id="radon-status"></span></span>
+              </div>
+              <div class="graph-wrapper">
+                <div class="graph" id="radon-graph">
+                  <svg id="radon-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="radon-cursor"></div>
+                <div class="graph-tooltip" id="radon-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="radon-time-axis"></div>
             </div>
             ` : ''}
 
@@ -959,6 +1092,43 @@ class AirQualityCard extends HTMLElement {
       }
     }
 
+    // Update Radon
+    if (this._config.radon_entity) {
+      const radonRaw = this._getNumericState(this._config.radon_entity);
+      const radonBq = this._getRadonBqm3(radonRaw);
+      const radonColor = this._getRadonColor(radonBq);
+      const radonUnit = this._getRadonUnit();
+      const radonValueEl = this.shadowRoot.getElementById('radon-value');
+      if (radonValueEl) {
+        const displayVal = radonUnit === 'pCi/L' ? radonRaw.toFixed(1) : Math.round(radonRaw);
+        radonValueEl.innerHTML = `${displayVal} <span class="unit">${radonUnit}</span><span class="status" id="radon-status"></span>`;
+        const statusEl = radonValueEl.querySelector('.status');
+        statusEl.textContent = radonBq < 48 ? 'Excellent' : radonBq < 100 ? 'Good' : radonBq < 148 ? 'Elevated' : radonBq < 300 ? 'High' : 'Dangerous';
+        statusEl.style.background = radonColor + '22';
+        statusEl.style.color = radonColor;
+        radonValueEl.style.color = radonColor;
+      }
+    }
+
+    // Update radon advisory banner
+    const radonAdvisory = this._getRadonAdvisory();
+    const advisoryEl = this.shadowRoot.getElementById('radon-advisory');
+    if (advisoryEl) {
+      if (radonAdvisory) {
+        advisoryEl.style.display = '';
+        const advisoryColors = { danger: 'var(--aq-very-poor)', warning: 'var(--aq-poor)', info: 'var(--aq-moderate)' };
+        advisoryEl.style.borderLeftColor = advisoryColors[radonAdvisory.level] || 'var(--aq-moderate)';
+        const titleEl = this.shadowRoot.getElementById('radon-advisory-title');
+        const subtitleEl = this.shadowRoot.getElementById('radon-advisory-subtitle');
+        const iconEl = this.shadowRoot.getElementById('radon-advisory-icon');
+        if (titleEl) titleEl.textContent = radonAdvisory.text;
+        if (subtitleEl) subtitleEl.textContent = radonAdvisory.subtitle;
+        if (iconEl) iconEl.style.color = advisoryColors[radonAdvisory.level] || 'var(--aq-moderate)';
+      } else {
+        advisoryEl.style.display = 'none';
+      }
+    }
+
     // Update CO2
     if (co2 !== null) {
       const co2Color = this._getCO2Color(co2);
@@ -1109,6 +1279,11 @@ class AirQualityCard extends HTMLElement {
 
     if (this._config.co_entity && this._history.co.length) {
       this._renderGraph('co', this._history.co, this._getCOColor.bind(this), 0, 100, 'ppm', this._history.outdoor_co);
+    }
+    if (this._config.radon_entity && this._history.radon.length) {
+      const radonUnit = this._getRadonUnit();
+      const radonMax = this._isRadonPciL() ? 10 : 370;
+      this._renderGraph('radon', this._history.radon, (v) => this._getRadonColor(this._getRadonBqm3(v)), 0, radonMax, radonUnit);
     }
     if (this._config.co2_entity && this._history.co2.length) {
       this._renderGraph('co2', this._history.co2, this._getCO2Color.bind(this), 400, 2000, 'ppm', this._history.outdoor_co2);
@@ -1272,7 +1447,7 @@ class AirQualityCard extends HTMLElement {
   }
 
   _setupGraphInteractions() {
-    const graphIds = ['co', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'hcho', 'tvoc', 'humidity', 'temperature'].filter(id => {
+    const graphIds = ['co', 'radon', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'hcho', 'tvoc', 'humidity', 'temperature'].filter(id => {
       return this._config[`${id}_entity`];
     });
 
@@ -1375,8 +1550,9 @@ class AirQualityCard extends HTMLElement {
     const timeEl = tooltip.querySelector('.graph-tooltip-time');
 
     const formatVal = (val) => {
-      if (data.unit === 'ppm' || data.unit === 'ppb' || data.unit === 'p/0.1L') return Math.round(val);
+      if (data.unit === 'ppm' || data.unit === 'ppb' || data.unit === 'p/0.1L' || data.unit === 'Bq/m³') return Math.round(val);
       if (data.unit === '%' || data.unit === '°F' || data.unit === '°C') return Math.round(val);
+      if (data.unit === 'pCi/L') return val.toFixed(1);
       return val.toFixed(1);
     };
 
@@ -1460,6 +1636,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         name: 'Air Quality',
         hours_to_show: 24,
         temperature_unit: 'auto',
+        radon_unit: 'auto',
         ...config
       };
     }
@@ -1471,6 +1648,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         pm25_entity: 'PM2.5 Sensor',
         humidity_entity: 'Humidity Sensor',
         temperature_entity: 'Temperature Sensor',
+        radon_entity: 'Radon Sensor',
         co_entity: 'CO (Carbon Monoxide) Sensor',
         hcho_entity: 'Formaldehyde (HCHO) Sensor',
         tvoc_entity: 'tVOC Sensor',
@@ -1489,7 +1667,8 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         outdoor_pm03_entity: 'Outdoor PM0.3',
         air_quality_entity: 'Air Quality Index (optional)',
         hours_to_show: 'Graph History',
-        temperature_unit: 'Temperature Unit'
+        temperature_unit: 'Temperature Unit',
+        radon_unit: 'Radon Unit'
       };
       return labels[schema.name] || schema.name;
     }
@@ -1519,24 +1698,25 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             {
               type: 'grid',
               schema: [
+                { name: 'radon_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'co_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_monoxide' }] } } },
+              ]
+            },
+            {
+              type: 'grid',
+              schema: [
                 { name: 'hcho_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
                 { name: 'tvoc_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'volatile_organic_compounds' }] } } },
-                { name: 'pm1_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm1' }] } } },
               ]
             },
             {
               type: 'grid',
               schema: [
+                { name: 'pm1_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm1' }] } } },
                 { name: 'pm10_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm10' }] } } },
-                { name: 'pm03_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
+            { name: 'pm03_entity', selector: { entity: { domain: 'sensor' } } },
           ]
         },
         {
@@ -1589,6 +1769,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
             { name: 'hours_to_show', selector: { number: { min: 1, max: 168, mode: 'box', unit_of_measurement: 'hours' } } },
             { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
+            { name: 'radon_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor)' }, { value: 'pCi/L', label: 'pCi/L (US)' }, { value: 'Bq/m³', label: 'Bq/m³ (International)' }], mode: 'dropdown' } } },
           ]
         }
       ];

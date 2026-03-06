@@ -21,8 +21,9 @@ A custom Home Assistant Lovelace card for monitoring indoor air quality with bea
 
 ## Features
 
-- **Real-time monitoring** of CO, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, humidity, and temperature
-- **CO safety alerts** — critical red warnings for dangerous carbon monoxide levels
+- **Real-time monitoring** of CO, Radon, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, humidity, and temperature
+- **CO safety alerts** -- critical red warnings for dangerous carbon monoxide levels
+- **Radon advisory banner** -- separate long-term health advisory with EPA/WHO thresholds (supports pCi/L and Bq/m3)
 - **Gradient-colored graphs** that change color based on air quality levels
 - **Interactive hover/touch** to see historical values at any point
 - **Health-based thresholds** following WHO 2021 guidelines and ASHRAE standards
@@ -55,7 +56,7 @@ Or manually: open HACS, search for "Air Quality Card", click Install, and refres
 2. Search for "Air Quality Card"
 3. Configure the entities using the visual editor
 4. Primary sensors (CO₂, PM2.5, Humidity, Temperature) are always visible
-5. Expand "Additional Sensors" for CO, HCHO, tVOC, PM1, PM10, PM0.3
+5. Expand "Additional Sensors" for Radon, CO, HCHO, tVOC, PM1, PM10, PM0.3
 6. Expand "Outdoor Sensors" for comparison data
 
 ### YAML Configuration
@@ -67,6 +68,7 @@ co2_entity: sensor.air_quality_co2
 pm25_entity: sensor.air_quality_pm25
 pm10_entity: sensor.air_quality_pm10
 co_entity: sensor.air_quality_co
+radon_entity: sensor.wave_1_day_average
 humidity_entity: sensor.air_quality_humidity
 temperature_entity: sensor.air_quality_temperature
 air_quality_entity: sensor.air_quality_index
@@ -87,6 +89,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `pm10_entity` | string | No* | - | PM10 sensor entity ID |
 | `pm03_entity` | string | No* | - | PM0.3 particle count sensor entity ID |
 | `co_entity` | string | No* | - | Carbon monoxide (CO) sensor entity ID |
+| `radon_entity` | string | No* | - | Radon sensor entity ID (supports pCi/L and Bq/m3) |
 | `hcho_entity` | string | No* | - | Formaldehyde (HCHO) sensor entity ID |
 | `tvoc_entity` | string | No* | - | Volatile organic compounds (tVOC) sensor entity ID |
 | `humidity_entity` | string | No* | - | Humidity sensor entity ID |
@@ -94,6 +97,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `air_quality_entity` | string | No | - | Overall air quality index entity |
 | `hours_to_show` | number | No | 24 | Hours of history to display (1-168) |
 | `temperature_unit` | string | No | "auto" | Temperature unit: "auto" (detect from HA), "F" (Fahrenheit), or "C" (Celsius) |
+| `radon_unit` | string | No | "auto" | Radon unit: "auto" (detect from sensor), "pCi/L" (US), or "Bq/m3" (International) |
 | `outdoor_co2_entity` | string | No | - | Outdoor CO2 sensor for comparison |
 | `outdoor_pm25_entity` | string | No | - | Outdoor PM2.5 sensor for comparison |
 | `outdoor_pm1_entity` | string | No | - | Outdoor PM1 sensor for comparison |
@@ -118,9 +122,11 @@ Configure outdoor sensor entities to see a **dashed comparison line** on each gr
 
 ## Built-in Recommendations
 
-The card automatically generates actionable recommendations based on your sensor readings — no template sensors needed. It evaluates CO, CO2, PM2.5, PM10, HCHO, tVOC, and humidity levels, and when outdoor sensors are configured, it avoids suggesting ventilation when outdoor air is worse.
+The card automatically generates actionable recommendations based on your sensor readings -- no template sensors needed. It evaluates CO, CO2, PM2.5, PM10, HCHO, tVOC, and humidity levels, and when outdoor sensors are configured, it avoids suggesting ventilation when outdoor air is worse.
 
-**CO safety alerts** are always shown regardless of outdoor conditions — carbon monoxide is a life-safety concern. If CO exceeds dangerous levels, the card shows a critical red warning with instructions to leave the area.
+**CO safety alerts** are always shown regardless of outdoor conditions -- carbon monoxide is a life-safety concern. If CO exceeds dangerous levels, the card shows a critical red warning with instructions to leave the area.
+
+**Radon advisory banner** appears as a separate element below the main recommendation when radon levels are elevated. Unlike other pollutants, radon changes over days/weeks and requires professional mitigation (not "open a window"), so it uses its own advisory system instead of the main recommendation waterfall. The advisory shows at three levels: informational (approaching action level), warning (above EPA action level of 4.0 pCi/L / 148 Bq/m3), and danger (significantly elevated, mitigation needed).
 
 ## Health Thresholds
 
@@ -132,6 +138,16 @@ The card automatically generates actionable recommendations based on your sensor
 | Moderate | 9-35 ppm | Yellow | Improve ventilation |
 | High | 35-100 ppm | Orange | Ventilate immediately |
 | Dangerous | > 100 ppm | Red | Leave area immediately |
+
+### Radon
+Based on EPA and WHO guidelines:
+| Level | Range (pCi/L) | Range (Bq/m3) | Color | Meaning |
+|-------|---------------|----------------|-------|---------|
+| Excellent | < 1.3 | < 48 | Green | Low risk |
+| Good | 1.3-2.7 | 48-100 | Light Green | Below WHO reference level |
+| Elevated | 2.7-4.0 | 100-148 | Yellow | Approaching EPA action level |
+| High | 4.0-8.0 | 148-300 | Orange | Above EPA action level, consider mitigation |
+| Dangerous | > 8.0 | > 300 | Red | Professional mitigation needed |
 
 ### CO2 (Carbon Dioxide)
 | Level | Range | Color | Meaning |
@@ -209,7 +225,7 @@ Based on WHO 2021 Air Quality Guidelines:
 
 ## Supported Devices
 
-This card works with any sensor that provides entities for CO, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, humidity, or temperature. Use any combination — even a single sensor works. Tested with:
+This card works with any sensor that provides entities for CO, Radon, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, humidity, or temperature. Use any combination -- even a single sensor works. Tested with:
 
 - IKEA VINDSTYRKA / ALPSTUGA (via Matter)
 - Aqara TVOC Air Quality Monitor
@@ -217,6 +233,7 @@ This card works with any sensor that provides entities for CO, CO2, PM2.5, PM10,
 - SenseAir S8
 - AirGradient ONE / Open Air
 - PurpleAir sensors
+- Airthings Wave / Wave Plus (radon, CO2, tVOC, humidity, temperature)
 - Any ESPHome-based air quality sensor
 
 ## Development

@@ -128,6 +128,13 @@ assert(card._getCOColor(20) === '#ffc107', 'CO 20 = yellow');
 assert(card._getCOColor(50) === '#ff9800', 'CO 50 = orange');
 assert(card._getCOColor(150) === '#f44336', 'CO 150 = red');
 
+section('Radon Color (Bq/m³)');
+assert(card._getRadonColor(30) === '#4caf50', 'Radon 30 Bq = green');
+assert(card._getRadonColor(80) === '#8bc34a', 'Radon 80 Bq = light green');
+assert(card._getRadonColor(120) === '#ffc107', 'Radon 120 Bq = yellow');
+assert(card._getRadonColor(200) === '#ff9800', 'Radon 200 Bq = orange');
+assert(card._getRadonColor(400) === '#f44336', 'Radon 400 Bq = red');
+
 section('HCHO Color');
 assert(card._getHCHOColor(10) === '#4caf50', 'HCHO 10 = green');
 assert(card._getHCHOColor(30) === '#8bc34a', 'HCHO 30 = light green');
@@ -287,7 +294,7 @@ assert(threw, 'Empty config throws');
 // Should accept any single sensor
 const singleSensorConfigs = [
   'co2_entity', 'pm25_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
-  'hcho_entity', 'tvoc_entity', 'co_entity', 'humidity_entity', 'temperature_entity'
+  'hcho_entity', 'tvoc_entity', 'co_entity', 'radon_entity', 'humidity_entity', 'temperature_entity'
 ];
 for (const key of singleSensorConfigs) {
   let ok = true;
@@ -300,6 +307,7 @@ card.setConfig({ co2_entity: 'sensor.co2' });
 assert(card._config.name === 'Air Quality', 'Default name');
 assert(card._config.hours_to_show === 24, 'Default hours_to_show');
 assert(card._config.temperature_unit === 'auto', 'Default temperature_unit is auto');
+assert(card._config.radon_unit === 'auto', 'Default radon_unit is auto');
 
 // ============================================================
 // OVERALL STATUS TESTS
@@ -351,6 +359,78 @@ card._config.temperature_unit = 'F';
 assert(card._isCelsius() === false, 'Explicit F override');
 
 // ============================================================
+// RADON UNIT DETECTION
+// ============================================================
+
+section('Radon Unit Detection');
+
+card._config.radon_unit = 'auto';
+card._config.radon_entity = 'sensor.radon';
+card._hass.states['sensor.radon'] = { state: '2.0', attributes: { unit_of_measurement: 'pCi/L' } };
+assert(card._getRadonUnit() === 'pCi/L', 'Auto detects pCi/L from entity');
+assert(card._isRadonPciL() === true, 'isRadonPciL true for pCi');
+assert(card._getRadonBqm3(2.0) === 74, 'pCi/L to Bq/m³ conversion (2.0 * 37 = 74)');
+
+card._hass.states['sensor.radon'] = { state: '100', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonUnit() === 'Bq/m³', 'Auto detects Bq/m³ from entity');
+
+card._config.radon_unit = 'Bq/m³';
+assert(card._getRadonUnit() === 'Bq/m³', 'Explicit Bq/m³ override');
+assert(card._getRadonBqm3(100) === 100, 'Bq/m³ passthrough');
+
+card._config.radon_unit = 'pCi/L';
+assert(card._getRadonUnit() === 'pCi/L', 'Explicit pCi/L override');
+
+// ============================================================
+// RADON ADVISORY TESTS
+// ============================================================
+
+section('Radon Advisory');
+
+card._config = { name: 'Test', hours_to_show: 24, temperature_unit: 'auto', radon_unit: 'Bq/m³', radon_entity: 'sensor.radon' };
+card._hass.states['sensor.radon'] = { state: '350', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonAdvisory().level === 'danger', 'Radon 350 Bq = danger advisory');
+
+card._hass.states['sensor.radon'] = { state: '200', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonAdvisory().level === 'warning', 'Radon 200 Bq = warning advisory');
+
+card._hass.states['sensor.radon'] = { state: '110', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonAdvisory().level === 'info', 'Radon 110 Bq = info advisory');
+
+card._hass.states['sensor.radon'] = { state: '40', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonAdvisory() === null, 'Radon 40 Bq = no advisory');
+
+// ============================================================
+// RADON DOES NOT AFFECT RECOMMENDATIONS
+// ============================================================
+
+section('Radon does NOT affect recommendations');
+
+setStates({ co2: 400 });
+card._config.radon_entity = 'sensor.radon';
+card._config.radon_unit = 'Bq/m³';
+card._hass.states['sensor.radon'] = { state: '400', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRecommendation() === 'All Good', 'High radon does not change recommendation');
+
+// ============================================================
+// RADON OVERALL STATUS
+// ============================================================
+
+section('Radon Overall Status');
+
+setStates({});
+card._config.radon_entity = 'sensor.radon';
+card._config.radon_unit = 'Bq/m³';
+card._hass.states['sensor.radon'] = { state: '300', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getOverallStatus().status === 'Poor', 'Radon 300 Bq = Poor status');
+
+card._hass.states['sensor.radon'] = { state: '150', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getOverallStatus().status === 'Fair', 'Radon 150 Bq = Fair status');
+
+card._hass.states['sensor.radon'] = { state: '50', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getOverallStatus().status === 'Excellent', 'Radon 50 Bq does not degrade status');
+
+// ============================================================
 // CARD SIZE TESTS
 // ============================================================
 
@@ -368,12 +448,13 @@ card._config.temperature_entity = 'sensor.temp';
 assert(card.getCardSize() === 7, 'Four sensors = 7');
 
 card._config.co_entity = 'sensor.co';
+card._config.radon_entity = 'sensor.radon';
 card._config.pm10_entity = 'sensor.pm10';
 card._config.pm1_entity = 'sensor.pm1';
 card._config.pm03_entity = 'sensor.pm03';
 card._config.hcho_entity = 'sensor.hcho';
 card._config.tvoc_entity = 'sensor.tvoc';
-assert(card.getCardSize() === 13, 'All 10 sensors = 13');
+assert(card.getCardSize() === 14, 'All 11 sensors = 14');
 
 // ============================================================
 // GETCONFIG FORM TESTS
@@ -398,11 +479,11 @@ assert(typeof editor._computeLabel === 'function', 'computeLabel is a function')
 // Check all expected labels exist
 const allLabels = [
   'name', 'co2_entity', 'pm25_entity', 'humidity_entity', 'temperature_entity',
-  'co_entity', 'hcho_entity', 'tvoc_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
+  'radon_entity', 'co_entity', 'hcho_entity', 'tvoc_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
   'outdoor_co2_entity', 'outdoor_pm25_entity', 'outdoor_humidity_entity', 'outdoor_temperature_entity',
   'outdoor_co_entity', 'outdoor_hcho_entity', 'outdoor_tvoc_entity',
   'outdoor_pm1_entity', 'outdoor_pm10_entity', 'outdoor_pm03_entity',
-  'air_quality_entity', 'hours_to_show', 'temperature_unit'
+  'air_quality_entity', 'hours_to_show', 'temperature_unit', 'radon_unit'
 ];
 for (const name of allLabels) {
   const label = editor._computeLabel({ name });
@@ -437,7 +518,7 @@ section('History Keys');
 
 const freshCard = new CardClass();
 const expectedKeys = [
-  'co2', 'pm25', 'pm1', 'pm10', 'pm03', 'hcho', 'tvoc', 'co',
+  'co2', 'pm25', 'pm1', 'pm10', 'pm03', 'hcho', 'tvoc', 'co', 'radon',
   'humidity', 'temperature',
   'outdoor_co2', 'outdoor_pm25', 'outdoor_pm1', 'outdoor_pm10', 'outdoor_pm03',
   'outdoor_hcho', 'outdoor_tvoc', 'outdoor_co',
