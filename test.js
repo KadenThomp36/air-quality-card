@@ -431,6 +431,68 @@ card._hass.states['sensor.radon'] = { state: '50', attributes: { unit_of_measure
 assert(card._getOverallStatus().status === 'Excellent', 'Radon 50 Bq does not degrade status');
 
 // ============================================================
+// RADON LONGTERM TESTS
+// ============================================================
+
+section('Radon Long-Term Advisory');
+
+// Advisory uses higher of short-term and long-term
+card._config = { name: 'Test', hours_to_show: 24, temperature_unit: 'auto', radon_unit: 'Bq/m³', radon_entity: 'sensor.radon', radon_longterm_entity: 'sensor.radon_lt' };
+card._hass.states['sensor.radon'] = { state: '50', attributes: { unit_of_measurement: 'Bq/m³' } };
+card._hass.states['sensor.radon_lt'] = { state: '200', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonAdvisory().level === 'warning', 'Advisory uses longterm when higher (200 Bq LT = warning)');
+
+card._hass.states['sensor.radon'] = { state: '350', attributes: { unit_of_measurement: 'Bq/m³' } };
+card._hass.states['sensor.radon_lt'] = { state: '50', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonAdvisory().level === 'danger', 'Advisory uses short-term when higher (350 Bq ST = danger)');
+
+// Advisory works with only longterm configured
+card._config = { name: 'Test', hours_to_show: 24, temperature_unit: 'auto', radon_unit: 'Bq/m³', radon_longterm_entity: 'sensor.radon_lt' };
+card._hass.states['sensor.radon_lt'] = { state: '200', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonAdvisory().level === 'warning', 'Advisory works with only longterm entity (200 Bq = warning)');
+
+card._hass.states['sensor.radon_lt'] = { state: '40', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getRadonAdvisory() === null, 'No advisory when longterm is low');
+
+// Advisory subtitle shows both values when both configured
+card._config = { name: 'Test', hours_to_show: 24, temperature_unit: 'auto', radon_unit: 'Bq/m³', radon_entity: 'sensor.radon', radon_longterm_entity: 'sensor.radon_lt' };
+card._hass.states['sensor.radon'] = { state: '120', attributes: { unit_of_measurement: 'Bq/m³' } };
+card._hass.states['sensor.radon_lt'] = { state: '110', attributes: { unit_of_measurement: 'Bq/m³' } };
+const advisory = card._getRadonAdvisory();
+assert(advisory && advisory.subtitle.includes('Short-term') && advisory.subtitle.includes('Long-term'), 'Advisory subtitle shows both values when both configured');
+
+section('Radon Long-Term Overall Status');
+
+// Overall status uses higher of short-term and long-term
+setStates({});
+card._config.radon_entity = 'sensor.radon';
+card._config.radon_longterm_entity = 'sensor.radon_lt';
+card._config.radon_unit = 'Bq/m³';
+card._hass.states['sensor.radon'] = { state: '50', attributes: { unit_of_measurement: 'Bq/m³' } };
+card._hass.states['sensor.radon_lt'] = { state: '300', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getOverallStatus().status === 'Poor', 'Overall status uses longterm when higher (300 Bq LT = Poor)');
+
+card._hass.states['sensor.radon'] = { state: '150', attributes: { unit_of_measurement: 'Bq/m³' } };
+card._hass.states['sensor.radon_lt'] = { state: '50', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getOverallStatus().status === 'Fair', 'Overall status uses short-term when higher (150 Bq ST = Fair)');
+
+// Works with only longterm
+card._config = { name: 'Test', hours_to_show: 24, temperature_unit: 'auto', radon_unit: 'Bq/m³', radon_longterm_entity: 'sensor.radon_lt' };
+card._hass.states['sensor.radon_lt'] = { state: '300', attributes: { unit_of_measurement: 'Bq/m³' } };
+assert(card._getOverallStatus().status === 'Poor', 'Overall status works with only longterm (300 Bq = Poor)');
+
+section('Radon Long-Term Config Validation');
+
+// radon_longterm_entity alone should be valid config
+let configValid = true;
+try {
+  card.setConfig({ radon_longterm_entity: 'sensor.radon_lt' });
+} catch (e) {
+  configValid = false;
+}
+assert(configValid, 'radon_longterm_entity alone is valid config');
+
+// ============================================================
 // CARD SIZE TESTS
 // ============================================================
 
@@ -479,7 +541,7 @@ assert(typeof editor._computeLabel === 'function', 'computeLabel is a function')
 // Check all expected labels exist
 const allLabels = [
   'name', 'co2_entity', 'pm25_entity', 'humidity_entity', 'temperature_entity',
-  'radon_entity', 'co_entity', 'hcho_entity', 'tvoc_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
+  'radon_entity', 'radon_longterm_entity', 'co_entity', 'hcho_entity', 'tvoc_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
   'outdoor_co2_entity', 'outdoor_pm25_entity', 'outdoor_humidity_entity', 'outdoor_temperature_entity',
   'outdoor_co_entity', 'outdoor_hcho_entity', 'outdoor_tvoc_entity',
   'outdoor_pm1_entity', 'outdoor_pm10_entity', 'outdoor_pm03_entity',
@@ -518,7 +580,7 @@ section('History Keys');
 
 const freshCard = new CardClass();
 const expectedKeys = [
-  'co2', 'pm25', 'pm1', 'pm10', 'pm03', 'hcho', 'tvoc', 'co', 'radon',
+  'co2', 'pm25', 'pm1', 'pm10', 'pm03', 'hcho', 'tvoc', 'co', 'radon', 'radon_longterm',
   'humidity', 'temperature',
   'outdoor_co2', 'outdoor_pm25', 'outdoor_pm1', 'outdoor_pm10', 'outdoor_pm03',
   'outdoor_hcho', 'outdoor_tvoc', 'outdoor_co',

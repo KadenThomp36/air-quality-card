@@ -69,6 +69,7 @@ pm25_entity: sensor.air_quality_pm25
 pm10_entity: sensor.air_quality_pm10
 co_entity: sensor.air_quality_co
 radon_entity: sensor.wave_1_day_average
+radon_longterm_entity: sensor.wave_longterm_average
 humidity_entity: sensor.air_quality_humidity
 temperature_entity: sensor.air_quality_temperature
 air_quality_entity: sensor.air_quality_index
@@ -90,6 +91,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `pm03_entity` | string | No* | - | PM0.3 particle count sensor entity ID |
 | `co_entity` | string | No* | - | Carbon monoxide (CO) sensor entity ID |
 | `radon_entity` | string | No* | - | Radon sensor entity ID (supports pCi/L and Bq/m3) |
+| `radon_longterm_entity` | string | No | - | Radon long-term average sensor (shown as dashed overlay on radon graph) |
 | `hcho_entity` | string | No* | - | Formaldehyde (HCHO) sensor entity ID |
 | `tvoc_entity` | string | No* | - | Volatile organic compounds (tVOC) sensor entity ID |
 | `humidity_entity` | string | No* | - | Humidity sensor entity ID |

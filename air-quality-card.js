@@ -6,7 +6,7 @@
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.7.0';
+const CARD_VERSION = '2.7.1';
 
 class AirQualityCard extends HTMLElement {
   static getConfigElement() {
@@ -26,7 +26,7 @@ class AirQualityCard extends HTMLElement {
     this._config = {};
     this._hass = null;
     this._rendered = false;
-    this._history = { co2: [], pm25: [], pm1: [], pm10: [], pm03: [], hcho: [], tvoc: [], co: [], radon: [], humidity: [], temperature: [], outdoor_co2: [], outdoor_pm25: [], outdoor_pm1: [], outdoor_pm10: [], outdoor_pm03: [], outdoor_hcho: [], outdoor_tvoc: [], outdoor_co: [], outdoor_humidity: [], outdoor_temperature: [] };
+    this._history = { co2: [], pm25: [], pm1: [], pm10: [], pm03: [], hcho: [], tvoc: [], co: [], radon: [], radon_longterm: [], humidity: [], temperature: [], outdoor_co2: [], outdoor_pm25: [], outdoor_pm1: [], outdoor_pm10: [], outdoor_pm03: [], outdoor_hcho: [], outdoor_tvoc: [], outdoor_co: [], outdoor_humidity: [], outdoor_temperature: [] };
     this._historyLoaded = false;
     this._graphData = {};
     this._isDragging = false;
@@ -39,7 +39,7 @@ class AirQualityCard extends HTMLElement {
     const hasEntity = config.co2_entity || config.pm25_entity || config.pm1_entity ||
       config.pm10_entity || config.pm03_entity || config.hcho_entity ||
       config.tvoc_entity || config.co_entity || config.radon_entity ||
-      config.humidity_entity || config.temperature_entity;
+      config.radon_longterm_entity || config.humidity_entity || config.temperature_entity;
     if (!hasEntity) {
       throw new Error('Please configure at least one sensor entity');
     }
@@ -98,6 +98,10 @@ class AirQualityCard extends HTMLElement {
       if (this._config.radon_entity) {
         promises.push(this._fetchHistory(this._config.radon_entity, startTime, endTime));
         keys.push('radon');
+      }
+      if (this._config.radon_longterm_entity) {
+        promises.push(this._fetchHistory(this._config.radon_longterm_entity, startTime, endTime));
+        keys.push('radon_longterm');
       }
       if (this._config.co2_entity) {
         promises.push(this._fetchHistory(this._config.co2_entity, startTime, endTime));
@@ -293,26 +297,36 @@ class AirQualityCard extends HTMLElement {
   }
 
   _getRadonAdvisory() {
-    if (!this._config.radon_entity) return null;
-    const raw = this._getNumericState(this._config.radon_entity);
-    const bq = this._getRadonBqm3(raw);
+    if (!this._config.radon_entity && !this._config.radon_longterm_entity) return null;
+    const shortRaw = this._config.radon_entity ? this._getNumericState(this._config.radon_entity) : 0;
+    const longRaw = this._config.radon_longterm_entity ? this._getNumericState(this._config.radon_longterm_entity) : 0;
+    const shortBq = this._getRadonBqm3(shortRaw);
+    const longBq = this._getRadonBqm3(longRaw);
+    const bq = Math.max(shortBq, longBq);
+    const raw = shortBq >= longBq ? shortRaw : longRaw;
     const display = this._formatRadon(raw);
     const threshold = this._isRadonPciL() ? '4.0 pCi/L' : '148 Bq/m³';
 
+    // Build subtitle with both values when both are configured
+    const bothConfigured = this._config.radon_entity && this._config.radon_longterm_entity;
+    const valuesStr = bothConfigured
+      ? `Short-term: ${this._formatRadon(shortRaw)}, Long-term: ${this._formatRadon(longRaw)}`
+      : `Radon at ${display}`;
+
     if (bq >= 300) return {
       level: 'danger',
-      text: 'Radon High \u2014 Mitigation Needed',
-      subtitle: `Radon at ${display} \u2014 contact a certified radon mitigator`
+      text: 'Radon High - Mitigation Needed',
+      subtitle: `${valuesStr} - contact a certified radon mitigator`
     };
     if (bq >= 148) return {
       level: 'warning',
       text: 'Radon Above EPA Action Level',
-      subtitle: `Radon at ${display} \u2014 EPA recommends mitigation above ${threshold}`
+      subtitle: `${valuesStr} - EPA recommends mitigation above ${threshold}`
     };
     if (bq >= 100) return {
       level: 'info',
-      text: 'Radon \u2014 Monitor Closely',
-      subtitle: `Radon at ${display} \u2014 approaching action level`
+      text: 'Radon - Monitor Closely',
+      subtitle: `${valuesStr} - approaching action level`
     };
     return null;
   }
@@ -352,7 +366,9 @@ class AirQualityCard extends HTMLElement {
     const co = this._config.co_entity ? this._getNumericState(this._config.co_entity) : 0;
     const co2 = this._config.co2_entity ? this._getNumericState(this._config.co2_entity) : 0;
     const pm25 = this._config.pm25_entity ? this._getNumericState(this._config.pm25_entity) : 0;
-    const radon = this._config.radon_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_entity)) : 0;
+    const radonShort = this._config.radon_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_entity)) : 0;
+    const radonLong = this._config.radon_longterm_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_longterm_entity)) : 0;
+    const radon = Math.max(radonShort, radonLong);
 
     // If air_quality_entity is configured, use it
     if (this._config.air_quality_entity) {
@@ -457,7 +473,7 @@ class AirQualityCard extends HTMLElement {
 
   _initialRender() {
     const showCO = !!this._config.co_entity;
-    const showRadon = !!this._config.radon_entity;
+    const showRadon = !!(this._config.radon_entity || this._config.radon_longterm_entity);
     const showCO2 = !!this._config.co2_entity;
     const showPM25 = !!this._config.pm25_entity;
     const showPM10 = !!this._config.pm10_entity;
@@ -618,6 +634,29 @@ class AirQualityCard extends HTMLElement {
           border-radius: 4px;
         }
 
+        .graph-value-secondary {
+          font-size: 0.8em;
+          font-weight: 500;
+          opacity: 0.7;
+          margin-top: -2px;
+          margin-bottom: 4px;
+          text-align: right;
+        }
+
+        .graph-value-secondary .unit {
+          font-size: 0.75em;
+          font-weight: 400;
+          opacity: 0.8;
+        }
+
+        .graph-value-secondary .status {
+          font-size: 0.75em;
+          font-weight: 500;
+          margin-left: 4px;
+          padding: 1px 4px;
+          border-radius: 3px;
+        }
+
         .graph-wrapper {
           position: relative;
         }
@@ -766,11 +805,12 @@ class AirQualityCard extends HTMLElement {
             ` : ''}
 
             ${showRadon ? `
-            <div class="graph-container" id="radon-graph-container" data-entity="${this._config.radon_entity}">
+            <div class="graph-container" id="radon-graph-container" data-entity="${this._config.radon_entity || this._config.radon_longterm_entity}">
               <div class="graph-header">
                 <span class="graph-label">Radon</span>
                 <span class="graph-value" id="radon-value">-- <span class="unit">${this._getRadonUnit()}</span><span class="status" id="radon-status"></span></span>
               </div>
+              ${this._config.radon_longterm_entity ? `<div class="graph-value-secondary" id="radon-lt-value">LT: -- <span class="unit">${this._getRadonUnit()}</span></div>` : ''}
               <div class="graph-wrapper">
                 <div class="graph" id="radon-graph">
                   <svg id="radon-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
@@ -778,6 +818,7 @@ class AirQualityCard extends HTMLElement {
                 <div class="graph-cursor" id="radon-cursor"></div>
                 <div class="graph-tooltip" id="radon-tooltip">
                   <div class="graph-tooltip-value"></div>
+                  ${this._config.radon_longterm_entity ? `<div class="graph-tooltip-outdoor"></div>` : ''}
                   <div class="graph-tooltip-time"></div>
                 </div>
               </div>
@@ -1110,6 +1151,38 @@ class AirQualityCard extends HTMLElement {
       }
     }
 
+    // Update Radon Long-Term
+    if (this._config.radon_longterm_entity) {
+      const ltRaw = this._getNumericState(this._config.radon_longterm_entity);
+      const ltBq = this._getRadonBqm3(ltRaw);
+      const ltColor = this._getRadonColor(ltBq);
+      const radonUnit = this._getRadonUnit();
+      const ltValueEl = this.shadowRoot.getElementById('radon-lt-value');
+      if (ltValueEl) {
+        const displayVal = radonUnit === 'pCi/L' ? ltRaw.toFixed(1) : Math.round(ltRaw);
+        const statusText = ltBq < 48 ? 'Excellent' : ltBq < 100 ? 'Good' : ltBq < 148 ? 'Elevated' : ltBq < 300 ? 'High' : 'Dangerous';
+        ltValueEl.innerHTML = `LT: ${displayVal} <span class="unit">${radonUnit}</span><span class="status">${statusText}</span>`;
+        const statusEl = ltValueEl.querySelector('.status');
+        statusEl.style.background = ltColor + '22';
+        statusEl.style.color = ltColor;
+        ltValueEl.style.color = ltColor;
+      }
+      // If no short-term radon entity, show long-term as the main value
+      if (!this._config.radon_entity) {
+        const radonValueEl = this.shadowRoot.getElementById('radon-value');
+        if (radonValueEl) {
+          const displayVal = radonUnit === 'pCi/L' ? ltRaw.toFixed(1) : Math.round(ltRaw);
+          radonValueEl.innerHTML = `${displayVal} <span class="unit">${radonUnit}</span><span class="status" id="radon-status"></span>`;
+          const statusEl = radonValueEl.querySelector('.status');
+          const statusText = ltBq < 48 ? 'Excellent' : ltBq < 100 ? 'Good' : ltBq < 148 ? 'Elevated' : ltBq < 300 ? 'High' : 'Dangerous';
+          statusEl.textContent = statusText;
+          statusEl.style.background = ltColor + '22';
+          statusEl.style.color = ltColor;
+          radonValueEl.style.color = ltColor;
+        }
+      }
+    }
+
     // Update radon advisory banner
     const radonAdvisory = this._getRadonAdvisory();
     const advisoryEl = this.shadowRoot.getElementById('radon-advisory');
@@ -1280,10 +1353,12 @@ class AirQualityCard extends HTMLElement {
     if (this._config.co_entity && this._history.co.length) {
       this._renderGraph('co', this._history.co, this._getCOColor.bind(this), 0, 100, 'ppm', this._history.outdoor_co);
     }
-    if (this._config.radon_entity && this._history.radon.length) {
+    if ((this._config.radon_entity || this._config.radon_longterm_entity) && (this._history.radon.length || this._history.radon_longterm.length)) {
       const radonUnit = this._getRadonUnit();
       const radonMax = this._isRadonPciL() ? 10 : 370;
-      this._renderGraph('radon', this._history.radon, (v) => this._getRadonColor(this._getRadonBqm3(v)), 0, radonMax, radonUnit);
+      const primaryData = this._history.radon.length ? this._history.radon : this._history.radon_longterm;
+      const overlayData = this._config.radon_entity && this._config.radon_longterm_entity ? this._history.radon_longterm : [];
+      this._renderGraph('radon', primaryData, (v) => this._getRadonColor(this._getRadonBqm3(v)), 0, radonMax, radonUnit, overlayData, 'Long-term');
     }
     if (this._config.co2_entity && this._history.co2.length) {
       this._renderGraph('co2', this._history.co2, this._getCO2Color.bind(this), 400, 2000, 'ppm', this._history.outdoor_co2);
@@ -1319,7 +1394,7 @@ class AirQualityCard extends HTMLElement {
     this._setupGraphInteractions();
   }
 
-  _renderGraph(graphId, data, colorFn, minVal, maxVal, unit, outdoorData) {
+  _renderGraph(graphId, data, colorFn, minVal, maxVal, unit, outdoorData, outdoorLabel) {
     const svg = this.shadowRoot.getElementById(`${graphId}-svg`);
     const timeAxis = this.shadowRoot.getElementById(`${graphId}-time-axis`);
     if (!svg || !data.length) return;
@@ -1353,7 +1428,7 @@ class AirQualityCard extends HTMLElement {
       });
     }
 
-    this._graphData[graphId] = { points, outdoorPoints, unit, colorFn };
+    this._graphData[graphId] = { points, outdoorPoints, unit, colorFn, outdoorLabel: outdoorLabel || 'Outdoor' };
 
     if (points.length < 2) return;
 
@@ -1448,6 +1523,7 @@ class AirQualityCard extends HTMLElement {
 
   _setupGraphInteractions() {
     const graphIds = ['co', 'radon', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'hcho', 'tvoc', 'humidity', 'temperature'].filter(id => {
+      if (id === 'radon') return this._config.radon_entity || this._config.radon_longterm_entity;
       return this._config[`${id}_entity`];
     });
 
@@ -1573,7 +1649,7 @@ class AirQualityCard extends HTMLElement {
             closestOutdoor = point;
           }
         }
-        outdoorEl.textContent = `Outdoor: ${formatVal(closestOutdoor.value)} ${data.unit}`;
+        outdoorEl.textContent = `${data.outdoorLabel}: ${formatVal(closestOutdoor.value)} ${data.unit}`;
         outdoorEl.style.color = closestOutdoor.color;
         outdoorEl.style.display = 'block';
       } else {
@@ -1649,6 +1725,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         humidity_entity: 'Humidity Sensor',
         temperature_entity: 'Temperature Sensor',
         radon_entity: 'Radon Sensor',
+        radon_longterm_entity: 'Radon Long-Term Sensor',
         co_entity: 'CO (Carbon Monoxide) Sensor',
         hcho_entity: 'Formaldehyde (HCHO) Sensor',
         tvoc_entity: 'tVOC Sensor',
@@ -1699,24 +1776,30 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
               type: 'grid',
               schema: [
                 { name: 'radon_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'radon_longterm_entity', selector: { entity: { domain: 'sensor' } } },
+              ]
+            },
+            {
+              type: 'grid',
+              schema: [
                 { name: 'co_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_monoxide' }] } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
                 { name: 'hcho_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'tvoc_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'volatile_organic_compounds' }] } } },
               ]
             },
             {
               type: 'grid',
               schema: [
+                { name: 'tvoc_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'pm1_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm1' }] } } },
-                { name: 'pm10_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm10' }] } } },
               ]
             },
-            { name: 'pm03_entity', selector: { entity: { domain: 'sensor' } } },
+            {
+              type: 'grid',
+              schema: [
+                { name: 'pm10_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm10' }] } } },
+                { name: 'pm03_entity', selector: { entity: { domain: 'sensor' } } },
+              ]
+            },
           ]
         },
         {
@@ -1748,7 +1831,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_tvoc_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'volatile_organic_compounds' }] } } },
+                { name: 'outdoor_tvoc_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'outdoor_pm1_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm1' }] } } },
               ]
             },
