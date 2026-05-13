@@ -122,6 +122,22 @@ Configure outdoor sensor entities to see a **dashed comparison line** on each gr
 - Current outdoor values appear next to indoor readings
 - **Smart recommendations** avoid suggesting ventilation when outdoor air is worse (e.g., "Keep Windows Closed" instead of "Open Window")
 
+### Outdoor-Only Mode
+
+If you're using the card to monitor **only outdoor air quality** (e.g., a weather station or DIY ESPHome ambient sensor), you can configure just the `outdoor_*_entity` options. The card will:
+
+- Render outdoor entities as primary graph lines
+- Compute the status badge from the outdoor values using the same WHO thresholds
+- **Hide the recommendation strip** — actions like "Open Window" or "Run Air Purifier" don't apply to ambient air
+
+```yaml
+type: custom:air-quality-card
+name: Outdoor Air Quality
+outdoor_pm25_entity: sensor.outdoor_pm25
+outdoor_pm10_entity: sensor.outdoor_pm10
+outdoor_temperature_entity: sensor.outdoor_temperature
+```
+
 ## Built-in Recommendations
 
 The card automatically generates actionable recommendations based on your sensor readings -- no template sensors needed. It evaluates CO, CO2, PM2.5, PM10, HCHO, tVOC, and humidity levels, and when outdoor sensors are configured, it avoids suggesting ventilation when outdoor air is worse.

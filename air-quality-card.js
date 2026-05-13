@@ -35,13 +35,21 @@ class AirQualityCard extends HTMLElement {
   setConfig(config) {
     if (!config) throw new Error('Invalid configuration');
 
-    // Validate that at least one sensor entity is configured
-    const hasEntity = config.co2_entity || config.pm25_entity || config.pm1_entity ||
-      config.pm10_entity || config.pm03_entity || config.pm4_entity ||
-      config.hcho_entity || config.tvoc_entity || config.nox_entity ||
-      config.co_entity || config.radon_entity ||
-      config.radon_longterm_entity || config.humidity_entity || config.temperature_entity;
-    if (!hasEntity) {
+    const indoorEntityKeys = [
+      'co2_entity', 'pm25_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
+      'pm4_entity', 'hcho_entity', 'tvoc_entity', 'nox_entity', 'co_entity',
+      'radon_entity', 'radon_longterm_entity', 'humidity_entity', 'temperature_entity'
+    ];
+    const outdoorEntityKeys = [
+      'outdoor_co2_entity', 'outdoor_pm25_entity', 'outdoor_pm1_entity',
+      'outdoor_pm10_entity', 'outdoor_pm03_entity', 'outdoor_hcho_entity',
+      'outdoor_tvoc_entity', 'outdoor_co_entity', 'outdoor_humidity_entity',
+      'outdoor_temperature_entity'
+    ];
+    const hasIndoor = indoorEntityKeys.some(k => config[k]);
+    const hasOutdoor = outdoorEntityKeys.some(k => config[k]);
+
+    if (!hasIndoor && !hasOutdoor) {
       throw new Error('Please configure at least one sensor entity');
     }
 
@@ -52,6 +60,32 @@ class AirQualityCard extends HTMLElement {
       radon_unit: 'auto',
       ...config
     };
+
+    // Outdoor-only mode: when no indoor entities are set, promote each outdoor
+    // entity into its primary slot so the existing render pipeline shows it.
+    // Recommendations are suppressed in this mode since they assume indoor context.
+    this._outdoorOnly = !hasIndoor;
+    if (this._outdoorOnly) {
+      const promotionMap = {
+        outdoor_co2_entity: 'co2_entity',
+        outdoor_pm25_entity: 'pm25_entity',
+        outdoor_pm1_entity: 'pm1_entity',
+        outdoor_pm10_entity: 'pm10_entity',
+        outdoor_pm03_entity: 'pm03_entity',
+        outdoor_hcho_entity: 'hcho_entity',
+        outdoor_tvoc_entity: 'tvoc_entity',
+        outdoor_co_entity: 'co_entity',
+        outdoor_humidity_entity: 'humidity_entity',
+        outdoor_temperature_entity: 'temperature_entity'
+      };
+      for (const [outdoorKey, primaryKey] of Object.entries(promotionMap)) {
+        if (this._config[outdoorKey] && !this._config[primaryKey]) {
+          this._config[primaryKey] = this._config[outdoorKey];
+          delete this._config[outdoorKey];
+        }
+      }
+    }
+
     this._rendered = false;
     this._historyLoaded = false;
   }
@@ -505,6 +539,10 @@ class AirQualityCard extends HTMLElement {
   }
 
   _getRecommendation() {
+    // Outdoor-only mode: recommendations assume an indoor context (open window,
+    // run air purifier, etc.) and are nonsensical when the user is monitoring
+    // ambient air quality. Hide the recommendation strip entirely.
+    if (this._outdoorOnly) return null;
     const co = this._config.co_entity ? this._getNumericState(this._config.co_entity) : 0;
     const co2 = this._config.co2_entity ? this._getNumericState(this._config.co2_entity) : 0;
     const pm25 = this._config.pm25_entity ? this._getNumericState(this._config.pm25_entity) : 0;
@@ -866,6 +904,7 @@ class AirQualityCard extends HTMLElement {
             </div>
           </div>
 
+          ${!this._outdoorOnly ? `
           <div class="recommendation" id="recommendation">
             <ha-icon id="rec-icon" icon="mdi:check-circle"></ha-icon>
             <div class="recommendation-text">
@@ -873,6 +912,7 @@ class AirQualityCard extends HTMLElement {
               <div class="recommendation-subtitle" id="rec-subtitle">Air quality is within healthy limits</div>
             </div>
           </div>
+          ` : ''}
 
           <div class="radon-advisory" id="radon-advisory" style="display:none">
             <ha-icon id="radon-advisory-icon" icon="mdi:radioactive"></ha-icon>

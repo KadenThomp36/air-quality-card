@@ -579,6 +579,74 @@ assert(card._computeGraphX(12345, W, P) === P, 'missing time window returns padd
 card._timeWindow = undefined;
 
 // ============================================================
+// OUTDOOR-ONLY MODE TESTS
+// ============================================================
+
+section('Outdoor-Only Mode');
+
+// Outdoor-only config is valid
+let outdoorOnlyCard = new CardClass();
+let outdoorOnlyValid = true;
+try {
+  outdoorOnlyCard.setConfig({ outdoor_pm25_entity: 'sensor.outdoor_pm25' });
+} catch (e) {
+  outdoorOnlyValid = false;
+}
+assert(outdoorOnlyValid, 'outdoor_pm25_entity alone is valid config');
+assert(outdoorOnlyCard._outdoorOnly === true, '_outdoorOnly flag set when only outdoor entities configured');
+assert(outdoorOnlyCard._config.pm25_entity === 'sensor.outdoor_pm25', 'outdoor_pm25_entity promoted to pm25_entity');
+assert(outdoorOnlyCard._config.outdoor_pm25_entity === undefined, 'outdoor_pm25_entity removed after promotion');
+
+// Multiple outdoor entities all promote
+const multiOutdoor = new CardClass();
+multiOutdoor.setConfig({
+  outdoor_co2_entity: 'sensor.out_co2',
+  outdoor_pm25_entity: 'sensor.out_pm25',
+  outdoor_temperature_entity: 'sensor.out_temp'
+});
+assert(multiOutdoor._outdoorOnly === true, 'multi-outdoor: _outdoorOnly true');
+assert(multiOutdoor._config.co2_entity === 'sensor.out_co2', 'outdoor_co2_entity promoted');
+assert(multiOutdoor._config.pm25_entity === 'sensor.out_pm25', 'outdoor_pm25_entity promoted');
+assert(multiOutdoor._config.temperature_entity === 'sensor.out_temp', 'outdoor_temperature_entity promoted');
+
+// Indoor + outdoor: no promotion, outdoor remains as overlay
+const mixed = new CardClass();
+mixed.setConfig({
+  pm25_entity: 'sensor.indoor_pm25',
+  outdoor_pm25_entity: 'sensor.outdoor_pm25'
+});
+assert(mixed._outdoorOnly === false, 'mixed indoor+outdoor: _outdoorOnly false');
+assert(mixed._config.pm25_entity === 'sensor.indoor_pm25', 'mixed: indoor entity preserved');
+assert(mixed._config.outdoor_pm25_entity === 'sensor.outdoor_pm25', 'mixed: outdoor stays for overlay');
+
+// Empty config still throws
+let emptyThrew = false;
+try {
+  new CardClass().setConfig({});
+} catch (e) {
+  emptyThrew = true;
+}
+assert(emptyThrew, 'empty config still throws');
+
+// Recommendations suppressed in outdoor-only mode
+const outdoorRec = new CardClass();
+outdoorRec.setConfig({ outdoor_co2_entity: 'sensor.out_co2' });
+outdoorRec._hass = card._hass;
+outdoorRec._hass.states['sensor.out_co2'] = { state: '2000', attributes: {} }; // would normally trigger "Ventilate Now"
+assert(outdoorRec._getRecommendation() === null, '_getRecommendation returns null in outdoor-only mode');
+
+// Recommendations work normally with indoor entity
+const indoorRec = new CardClass();
+indoorRec.setConfig({ co2_entity: 'sensor.in_co2' });
+indoorRec._hass = card._hass;
+indoorRec._hass.states['sensor.in_co2'] = { state: '2000', attributes: {} };
+assert(indoorRec._getRecommendation() === 'Ventilate Now', 'indoor mode: _getRecommendation works normally');
+
+// Restore card._config for downstream tests
+card._config = { name: 'Test', hours_to_show: 24, temperature_unit: 'auto' };
+card._outdoorOnly = false;
+
+// ============================================================
 // CARD SIZE TESTS
 // ============================================================
 
