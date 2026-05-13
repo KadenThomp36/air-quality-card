@@ -1,12 +1,12 @@
 /**
- * Air Quality Card v2.6.1
+ * Air Quality Card v2.9.0-rc1
  * A custom Home Assistant card for air quality visualization
  * Thresholds based on WHO 2021 guidelines and ASHRAE standards
  *
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.8.0';
+const CARD_VERSION = '2.9.0-rc1';
 
 class AirQualityCard extends HTMLElement {
   static getConfigElement() {
