@@ -159,7 +159,78 @@ const TRANSLATIONS = {
     radon: { advisory_danger: 'Radônio Alto — Mitigação Necessária', advisory_warning: 'Radônio Acima do Nível de Ação da EPA', advisory_info: 'Radônio — Monitorar de Perto', short_term: 'Curto prazo', long_term: 'Longo prazo' },
     metric: { humidity: 'Umidade', temperature: 'Temperatura', pressure: 'Pressão' },
     editor: { name: 'Nome do Cartão', co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de Umidade', temperature_entity: 'Sensor de Temperatura', radon_entity: 'Sensor de Radônio', radon_longterm_entity: 'Sensor de Radônio (Longo Prazo)', co_entity: 'Sensor de CO (Monóxido de Carbono)', hcho_entity: 'Sensor de Formaldeído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de Pressão Atmosférica', outdoor_co2_entity: 'CO₂ Externo', outdoor_pm25_entity: 'PM2.5 Externo', outdoor_humidity_entity: 'Umidade Externa', outdoor_temperature_entity: 'Temperatura Externa', outdoor_co_entity: 'CO Externo', outdoor_hcho_entity: 'HCHO Externo', outdoor_tvoc_entity: 'tVOC Externo', outdoor_pm1_entity: 'PM1 Externo', outdoor_pm10_entity: 'PM10 Externo', outdoor_pm03_entity: 'PM0.3 Externo', outdoor_nox_entity: 'NOx Externo', outdoor_pressure_entity: 'Pressão Externa', air_quality_entity: 'Índice de Qualidade do Ar (opcional)', hours_to_show: 'Histórico do Gráfico', temperature_unit: 'Unidade de Temperatura', radon_unit: 'Unidade de Radônio', tvoc_unit: 'Tipo de Medição de tVOC', nox_unit: 'Tipo de Medição de NOx', language: 'Idioma', recommendation_action: 'Ação da recomendação (botão)', compact_alerts: 'Indicadores de alerta quando recolhido', auto_expand: 'Expandir automaticamente se a qualidade do ar piorar', section_additional: 'Sensores Adicionais', section_outdoor: 'Sensores Externos', section_advanced: 'Avançado' }
-  }
+  },
+  hu: {
+    status: {
+      excellent: 'Kiváló', good: 'Jó', moderate: 'Mérsékelt', fair: 'Megfelelő',
+      poor: 'Gyenge', very_poor: 'Nagyon gyenge', extremely_poor: 'Kritikus', dangerous: 'Veszélyes'
+    },
+    recommendation: {
+      all_good: 'Minden rendben', ventilate_now: 'Szellőztessen most', run_air_purifier: 'Kapcsolja be a légtisztítót',
+      consider_air_purifier: 'Fontolja meg a légtisztító használatát', open_window: 'Nyisson ablakot',
+      air_purifier_ventilate: 'Légtisztítás + Szellőztetés', co_danger: 'CO Veszély – Hagyja el a helyiséget!',
+      co_warning: 'CO Figyelmeztetés – Szellőztessen most', co_elevated: 'CO Emelkedett – Szellőztessen',
+      consider_ventilating: 'Fontolja meg a szellőztetést', keep_windows_closed: 'Tartsa zárva az ablakokat',
+      too_dry: 'Túl száraz levegő', too_humid: 'Túl párás levegő', ventilate_formaldehyde: 'Szellőztetés – Formaldehid',
+      ventilate_vocs: 'Szellőztetés – Magas VOC szint'
+    },
+    subtitle: {
+      air_quality_healthy: 'A levegőminőség az egészséges határértékeken belül van',
+      co_danger: 'CO szint: {value} ppm – veszélyes szint észlelve', co_danger_unknown: 'Veszélyes CO szint',
+      co_warning: 'CO szint: {value} ppm – azonnal nyisson ablakot', co_warning_unknown: 'Magas CO szint',
+      co_elevated: 'CO szint: {value} ppm – fokozza a szellőzést', co_elevated_unknown: 'Emelkedett CO szint',
+      purifier_pm25: 'PM2.5 szint: {value} μg/m³ – tisztítsa a levegőt',
+      purifier_pm10: 'PM10 szint: {value} μg/m³ – tisztítsa a levegőt',
+      purifier_generic: 'A szálló por szintje emelkedett',
+      consider_purifier_pm10: 'PM10 szint: {value} μg/m³',
+      open_window_co2: 'CO₂ szint: {value} ppm – friss levegő szükséges',
+      purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³',
+      ventilate_now_co2: 'CO₂ szint: {value} ppm – befolyásolhatja a koncentrációt',
+      ventilate_formaldehyde: 'HCHO szint: {value} ppb – szellőztetés szükséges',
+      ventilate_formaldehyde_unknown: 'Emelkedett formaldehid szint',
+      ventilate_vocs: 'tVOC szint: {value} ppb – szellőztetés szükséges',
+      ventilate_vocs_unknown: 'Emelkedett VOC szint',
+      too_dry: 'Páratartalom: {value}% – fontolja meg párásító használatát',
+      too_humid: 'Páratartalom: {value}% – szellőztessen',
+      consider_ventilating_co2: 'CO₂ szint: {value} ppm',
+      consider_ventilating_pm25: 'PM2.5 szint: {value} μg/m³',
+      consider_ventilating_generic: 'Enyhén emelkedett szintek',
+      keep_closed_outdoor_pm25_poor: 'Kültéri PM2.5: {value} μg/m³ – rossz kinti levegő',
+      keep_closed_outdoor_pm25: 'Kültéri PM2.5: {value} μg/m³ – rosszabb, mint bent',
+      keep_closed_outdoor_co2: 'Kültéri CO₂: {value} ppm – rosszabb, mint bent',
+      keep_closed_generic: 'A kültéri levegőminőség rosszabb, mint a benti'
+    },
+    radon: {
+      advisory_danger: 'Magas Radon szint – Beavatkozás szükséges',
+      advisory_warning: 'Radon az EPA intézkedési szint felett',
+      advisory_info: 'Radon – Kísérje figyelemmel',
+      short_term: 'Rövid távú', long_term: 'Hosszú távú'
+    },
+    metric: { humidity: 'Páratartalom', temperature: 'Hőmérséklet', pressure: 'Légnyomás' },
+    editor: {
+      name: 'Kártya neve', co2_entity: 'CO₂ szenzor', pm25_entity: 'PM2.5 szenzor',
+      humidity_entity: 'Páratartalom szenzor', temperature_entity: 'Hőmérséklet szenzor',
+      radon_entity: 'Radon szenzor', radon_longterm_entity: 'Radon (hosszú távú) szenzor',
+      co_entity: 'CO (Szén-monoxid) szenzor', hcho_entity: 'Formaldehid (HCHO) szenzor',
+      tvoc_entity: 'tVOC szenzor', pm4_entity: 'PM4 szenzor', nox_entity: 'NOx szenzor',
+      pm1_entity: 'PM1 szenzor', pm10_entity: 'PM10 szenzor', pm03_entity: 'PM0.3 szenzor',
+      pressure_entity: 'Légnyomás szenzor',
+      outdoor_co2_entity: 'Kültéri CO₂', outdoor_pm25_entity: 'Kültéri PM2.5',
+      outdoor_humidity_entity: 'Kültéri páratartalom', outdoor_temperature_entity: 'Kültéri hőmérséklet',
+      outdoor_co_entity: 'Kültéri CO', outdoor_hcho_entity: 'Kültéri HCHO',
+      outdoor_tvoc_entity: 'Kültéri tVOC', outdoor_pm1_entity: 'Kültéri PM1',
+      outdoor_pm10_entity: 'Kültéri PM10', outdoor_pm03_entity: 'Kültéri PM0.3',
+      outdoor_nox_entity: 'Kültéri NOx', outdoor_pressure_entity: 'Kültéri légnyomás',
+      air_quality_entity: 'Levegőminőségi index (opcionális)', hours_to_show: 'Grafikon előzmények (óra)',
+      temperature_unit: 'Hőmérséklet mértékegysége', radon_unit: 'Radon mértékegysége',
+      tvoc_unit: 'tVOC mérés típusa', nox_unit: 'NOx mérés típusa', language: 'Nyelv',
+      recommendation_action: 'Ajánlás akciógomb',
+      compact_alerts: 'Figyelmeztető ikonok összecsukott állapotban',
+      auto_expand: 'Automatikus kibontás romló levegőminőségnél',
+      section_additional: 'További szenzorok', section_outdoor: 'Kültéri szenzorok',
+      section_advanced: 'Haladó beállítások'
+    }
+  },
 };
 
 class AirQualityCard extends HTMLElement {
