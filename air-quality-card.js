@@ -3198,15 +3198,15 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         {
           type: 'grid',
           schema: [
-            { name: 'co2_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_dioxide' }] } } },
-            { name: 'pm25_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm25' }] } } },
+            { name: 'co2_entity', selector: { entity: { domain: 'sensor' } } },
+            { name: 'pm25_entity', selector: { entity: { domain: 'sensor' } } },
           ]
         },
         {
           type: 'grid',
           schema: [
-            { name: 'humidity_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'humidity' }] } } },
-            { name: 'temperature_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'temperature' }] } } },
+            { name: 'humidity_entity', selector: { entity: { domain: 'sensor' } } },
+            { name: 'temperature_entity', selector: { entity: { domain: 'sensor' } } },
           ]
         },
         {
@@ -3224,7 +3224,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             {
               type: 'grid',
               schema: [
-                { name: 'co_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_monoxide' }] } } },
+                { name: 'co_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'hcho_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
@@ -3239,13 +3239,13 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
               type: 'grid',
               schema: [
                 { name: 'nox_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'pm1_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm1' }] } } },
+                { name: 'pm1_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'pm10_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm10' }] } } },
+                { name: 'pm10_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'pm03_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
@@ -3259,14 +3259,14 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             {
               type: 'grid',
               schema: [
-                { name: 'no2_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'nitrogen_dioxide' }] } } },
-                { name: 'o3_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'ozone' }] } } },
+                { name: 'no2_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'o3_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'pressure_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'atmospheric_pressure' }, { domain: 'sensor', device_class: 'pressure' }] } } },
+                { name: 'pressure_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
           ]
@@ -3279,21 +3279,21 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_co2_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_dioxide' }] } } },
-                { name: 'outdoor_pm25_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm25' }] } } },
+                { name: 'outdoor_co2_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_pm25_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_humidity_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'humidity' }] } } },
-                { name: 'outdoor_temperature_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'temperature' }] } } },
+                { name: 'outdoor_humidity_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_temperature_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_co_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_monoxide' }] } } },
+                { name: 'outdoor_co_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'outdoor_hcho_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
@@ -3301,13 +3301,13 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
               type: 'grid',
               schema: [
                 { name: 'outdoor_tvoc_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_pm1_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm1' }] } } },
+                { name: 'outdoor_pm1_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_pm10_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm10' }] } } },
+                { name: 'outdoor_pm10_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'outdoor_pm03_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
@@ -3315,14 +3315,14 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
               type: 'grid',
               schema: [
                 { name: 'outdoor_nox_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_no2_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'nitrogen_dioxide' }] } } },
+                { name: 'outdoor_no2_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_o3_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'ozone' }] } } },
-                { name: 'outdoor_pressure_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'atmospheric_pressure' }, { domain: 'sensor', device_class: 'pressure' }] } } },
+                { name: 'outdoor_o3_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_pressure_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
           ]
