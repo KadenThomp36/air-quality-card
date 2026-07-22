@@ -608,6 +608,35 @@ class AirQualityCard extends HTMLElement {
     return TRANSLATIONS[code] ? code : 'en';
   }
 
+  // Locale for date/time formatting (#55). Unlike _resolveLanguage this
+  // returns the full BCP 47 tag (e.g. 'pt-BR') and doesn't require a shipped
+  // translation pack — Intl knows far more locales than TRANSLATIONS does.
+  // An explicit `language` config wins so a forced card language also gets
+  // matching date formats; `undefined` lets the browser decide.
+  _dateLocale() {
+    const explicit = this._config.language;
+    if (explicit && explicit !== 'auto') return explicit;
+    return this._hass?.locale?.language || this._hass?.language || undefined;
+  }
+
+  // Graph time labels adapt to the configured window (#53): plain times up
+  // to a day, weekday + hour across a few days, calendar dates beyond that.
+  _formatAxisTime(d) {
+    const hours = Number(this._config.hours_to_show) || 24;
+    const loc = this._dateLocale();
+    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
+    if (hours <= 96) return d.toLocaleString(loc, { weekday: 'short', hour: 'numeric' });
+    return d.toLocaleDateString(loc, { month: 'short', day: 'numeric' });
+  }
+
+  // Hover tooltip time: include the day once the window spans more than one.
+  _formatTooltipTime(d) {
+    const hours = Number(this._config.hours_to_show) || 24;
+    const loc = this._dateLocale();
+    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleString(loc, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
   // Look up a translated string: _t('status', 'good') → 'Bueno' (es).
   // Falls back to English, then to the literal key if neither is found.
   _t(group, key) {
@@ -2953,7 +2982,7 @@ class AirQualityCard extends HTMLElement {
       const endTime = new Date(win.end);
       const midTime = new Date((win.start + win.end) / 2);
 
-      const formatTime = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const formatTime = (d) => this._formatAxisTime(d);
       timeAxis.innerHTML = `
         <span>${formatTime(startTime)}</span>
         <span>${formatTime(midTime)}</span>
@@ -3100,7 +3129,7 @@ class AirQualityCard extends HTMLElement {
 
     if (timeEl && closest.time) {
       const time = new Date(closest.time);
-      timeEl.textContent = time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      timeEl.textContent = this._formatTooltipTime(time);
     }
 
     let tooltipX = pct * 100;

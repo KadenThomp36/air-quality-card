@@ -1292,6 +1292,29 @@ assert(safetyChips.length === 3, 'O2 + Propane + CO2 all flagged');
 assert(safetyChips[0].metric === 'o2', 'life-safety O2 sorts first even at a lower tier color than CO2');
 assert(safetyChips[1].metric === 'c3h8', 'life-safety Propane sorts ahead of CO2 too');
 
+section('Adaptive, localized graph time labels (#53, #55)');
+
+const timeCard = new CardClass();
+timeCard.setConfig({ co2_entity: 'sensor.co2', language: 'en', hours_to_show: 12 });
+const sampleTime = new Date('2026-07-18T14:30:00'); // a Saturday
+assert(/2:30/.test(timeCard._formatAxisTime(sampleTime)), '≤24h axis label is a plain time');
+timeCard._config.hours_to_show = 72;
+assert(/Sat/.test(timeCard._formatAxisTime(sampleTime)), 'multi-day axis label shows the weekday');
+timeCard._config.hours_to_show = 168;
+const weekLabel = timeCard._formatAxisTime(sampleTime);
+assert(/Jul/.test(weekLabel) && /18/.test(weekLabel), 'week-long axis label shows the date');
+const tooltipLabel = timeCard._formatTooltipTime(sampleTime);
+assert(/Jul/.test(tooltipLabel) && /2:30/.test(tooltipLabel), 'multi-day tooltip includes date and time');
+timeCard._config.hours_to_show = 12;
+assert(!/Jul/.test(timeCard._formatTooltipTime(sampleTime)), 'single-day tooltip stays a plain time');
+timeCard._config.language = 'de';
+timeCard._config.hours_to_show = 72;
+assert(/Sa/.test(timeCard._formatAxisTime(sampleTime)), 'axis label follows forced card language');
+assert(timeCard._dateLocale() === 'de', 'explicit language wins for the date locale');
+timeCard._config.language = 'auto';
+timeCard._hass = { locale: { language: 'fr-FR' }, config: { unit_system: { temperature: '°C' } }, states: {} };
+assert(timeCard._dateLocale() === 'fr-FR', 'auto date locale uses the full hass locale tag');
+
 section('Compact mode — tap actions');
 
 // _fireAction is a no-op when the corresponding action isn't configured
