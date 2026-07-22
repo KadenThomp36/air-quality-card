@@ -418,6 +418,7 @@ class AirQualityCard extends HTMLElement {
       temperature_unit: 'auto',
       radon_unit: 'auto',
       show_min_max: false,
+      y_scale: 'fixed',
       show_status_banner: true,
       display: 'full',
       compact_alerts: true,
@@ -2868,8 +2869,24 @@ class AirQualityCard extends HTMLElement {
     if (outdoorData && outdoorData.length) {
       allValues.push(...outdoorData.map(d => d.value));
     }
-    const dataMin = Math.min(...allValues, minVal);
-    const dataMax = Math.max(...allValues, maxVal);
+    // Fixed scale (default) anchors every graph to the metric's meaningful
+    // range so tier colors stay comparable across cards. `y_scale: auto`
+    // (#52) instead zooms to the data with 10% headroom, making small
+    // variations visible when readings sit far from the tier boundaries.
+    let dataMin, dataMax;
+    if (this._config.y_scale === 'auto') {
+      dataMin = Math.min(...allValues);
+      dataMax = Math.max(...allValues);
+      const pad = (dataMax - dataMin) * 0.1 || Math.abs(dataMax) * 0.05 || 1;
+      dataMin -= pad;
+      dataMax += pad;
+      // Don't zoom below zero for metrics whose fixed floor is zero —
+      // a negative axis on a concentration graph reads as bad data.
+      if (minVal >= 0 && dataMin < 0) dataMin = 0;
+    } else {
+      dataMin = Math.min(...allValues, minVal);
+      dataMax = Math.max(...allValues, maxVal);
+    }
     const range = dataMax - dataMin || 1;
 
     const points = data.map(d => {
@@ -3215,6 +3232,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
       // English fallback for fields added after the translation pack was written.
       const localFallbacks = {
         show_min_max: 'Show min/max for each metric',
+        y_scale: 'Graph Y-axis scale',
         show_status_banner: 'Show status banner',
         order: 'Sensor Order (list of metric names)',
         display: 'Display Mode',
@@ -3370,6 +3388,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
             { name: 'hours_to_show', selector: { number: { min: 1, max: 168, mode: 'box', unit_of_measurement: 'hours' } } },
             { name: 'show_min_max', selector: { boolean: {} } },
+            { name: 'y_scale', selector: { select: { options: [{ value: 'fixed', label: 'Fixed (full metric range)' }, { value: 'auto', label: 'Auto (zoom to data)' }], mode: 'dropdown' } } },
             { name: 'show_status_banner', selector: { boolean: {} } },
             { name: 'order', selector: { select: { multiple: true, mode: 'list', options: [
               { value: 'co', label: 'CO' },

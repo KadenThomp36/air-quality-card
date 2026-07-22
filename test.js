@@ -1292,6 +1292,25 @@ assert(safetyChips.length === 3, 'O2 + Propane + CO2 all flagged');
 assert(safetyChips[0].metric === 'o2', 'life-safety O2 sorts first even at a lower tier color than CO2');
 assert(safetyChips[1].metric === 'c3h8', 'life-safety Propane sorts ahead of CO2 too');
 
+section('Y-axis scale (#52)');
+
+const yCard = new CardClass();
+yCard.setConfig({ humidity_entity: 'sensor.h' });
+yCard._timeWindow = { start: 0, end: 3600000 };
+const ySvg = { innerHTML: '' };
+yCard.shadowRoot = { getElementById: (id) => id === 'humidity-svg' ? ySvg : null };
+const yData = [ { time: 600000, value: 50 }, { time: 1800000, value: 52 }, { time: 3000000, value: 51 } ];
+const ySpread = pts => Math.max(...pts) - Math.min(...pts);
+
+yCard._renderGraph('humidity', yData, () => '#4caf50', 0, 100, '%');
+const yFixed = ySpread(yCard._graphData.humidity.points.map(p => p.y));
+yCard._config.y_scale = 'auto';
+yCard._renderGraph('humidity', yData, () => '#4caf50', 0, 100, '%');
+const yAuto = ySpread(yCard._graphData.humidity.points.map(p => p.y));
+assert(yFixed < 2, 'fixed scale: a 2% humidity wiggle is nearly flat on the 0-100 axis');
+assert(yAuto > yFixed * 5, 'auto scale zooms to the data and amplifies small variations');
+assert(yCard._config.y_scale === 'auto' && ySvg.innerHTML.includes('graph-line'), 'auto scale still renders the line SVG');
+
 section('Adaptive, localized graph time labels (#53, #55)');
 
 const timeCard = new CardClass();

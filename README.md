@@ -110,6 +110,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `tvoc_unit` | string | No | "auto" | tVOC measurement type: "auto" (detect from sensor), "ppb" (absolute), or "index" (Sensirion VOC Index) |
 | `nox_unit` | string | No | "auto" | NOx measurement type: "auto" (detect from sensor), "ppb" (absolute), or "index" (Sensirion NOx Index) |
 | `show_min_max` | boolean | No | `false` | Overlay the min/max values of the displayed time window directly at the data points on the graph |
+| `y_scale` | string | No | "fixed" | "fixed" anchors each graph to the metric's full meaningful range; "auto" zooms the Y-axis to the data (with 10% headroom) so small variations are visible |
 | `show_status_banner` | boolean | No | `true` | Show or hide the recommendation banner (the "All Good / Ventilate Now / …" strip at the top of the card) |
 | `order` | array | No | default | Custom display order for metrics (see [Sensor Order](#sensor-order)) |
 | `display` | string | No | "full" | "full" (graphs and details), "compact" (status badge only), or "expandable" (compact, tap to expand to full) |
