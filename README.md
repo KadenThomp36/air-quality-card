@@ -21,7 +21,7 @@ A custom Home Assistant Lovelace card for monitoring indoor air quality with bea
 
 ## Features
 
-- **Real-time monitoring** of CO, Radon, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, NOx, O2, NO2, O3, Propane, humidity, temperature, and atmospheric pressure
+- **Real-time monitoring** of CO, Radon, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, NOx, O2, NO2, O3, Propane, humidity, temperature, atmospheric pressure, and noise
 - **CO, Propane, and low-O2 safety alerts** -- critical red warnings for dangerous carbon monoxide, gas leak, or oxygen-deficient levels
 - **Radon advisory banner** -- separate long-term health advisory with EPA/WHO thresholds (supports pCi/L and Bq/m3)
 - **Gradient-colored graphs** that change color based on air quality levels
@@ -56,7 +56,7 @@ Or manually: open HACS, search for "Air Quality Card", click Install, and refres
 2. Search for "Air Quality Card"
 3. Configure the entities using the visual editor
 4. Primary sensors (CO₂, PM2.5, Humidity, Temperature) are always visible
-5. Expand "Additional Sensors" for Radon, CO, HCHO, tVOC, PM1, PM10, PM0.3, O2, NO2, O3, Propane
+5. Expand "Additional Sensors" for Radon, CO, HCHO, tVOC, PM1, PM10, PM0.3, O2, NO2, O3, Propane, Pressure, Noise
 6. Expand "Outdoor Sensors" for comparison data
 
 ### YAML Configuration
@@ -103,6 +103,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `humidity_entity` | string | No* | - | Humidity sensor entity ID |
 | `temperature_entity` | string | No* | - | Temperature sensor entity ID |
 | `pressure_entity` | string | No* | - | Atmospheric pressure sensor entity ID (e.g. Airthings) |
+| `noise_entity` | string | No* | - | Noise / sound level sensor entity ID (dB) |
 | `air_quality_entity` | string | No | - | Overall air quality index entity ([passthrough — see below](#air-quality-index-entity)) |
 | `hours_to_show` | number | No | 24 | Hours of history to display (1-168) |
 | `temperature_unit` | string | No | "auto" | Temperature unit: "auto" (detect from HA), "F" (Fahrenheit), or "C" (Celsius) |
@@ -137,6 +138,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `radon_thresholds` | array | No | `[48, 100, 148, 300]` | Custom radon thresholds (Bq/m³ — even if you display in pCi/L) |
 | `humidity_thresholds` | array | No | `[30, 40, 50, 60]` | Custom humidity thresholds (%) |
 | `pressure_thresholds` | array | No | `[990, 1005, 1025, 1040]` | Custom atmospheric pressure thresholds (hPa by default; override for inHg/mmHg) |
+| `noise_thresholds` | array | No | `[35, 45, 55, 70]` | Custom noise thresholds (dB) |
 | `air_quality_thresholds` | array | No | - | Interpret a numeric `air_quality_entity` through 5 tiers (Excellent/Good/Fair/Poor/Very Poor) instead of showing the raw number ([see below](#air-quality-index-entity)) |
 | `outdoor_pressure_entity` | string | No | - | Outdoor atmospheric pressure sensor for comparison |
 | `temperature_thresholds` | array | No | unit-dependent | Custom temperature thresholds (in the unit your sensor reports) |
@@ -175,7 +177,7 @@ If you leave it unset, the card computes the status itself from your configured 
 
 Customize which sensors come first on the card. In the visual editor, use the multi-select to tick metrics in the order you want them shown. In YAML, provide a list of metric names. Any metric you don't list keeps its default position and stays visible.
 
-Valid metric names: `co`, `c3h8`, `o2`, `radon`, `co2`, `pm25`, `pm10`, `pm1`, `pm03`, `pm4`, `hcho`, `tvoc`, `nox`, `no2`, `o3`, `humidity`, `temperature`, `pressure`.
+Valid metric names: `co`, `c3h8`, `o2`, `radon`, `co2`, `pm25`, `pm10`, `pm1`, `pm03`, `pm4`, `hcho`, `tvoc`, `nox`, `no2`, `o3`, `noise`, `humidity`, `temperature`, `pressure`.
 
 ```yaml
 type: custom:air-quality-card
@@ -476,6 +478,16 @@ Not a WHO/EPA air-quality pollutant — it's a combustible-gas leak/explosion ha
 | High | 0.42-1.05% | Orange | Gas Leak Danger — evacuate |
 | Dangerous | > 1.05% | Red | Gas Leak Danger — evacuate immediately |
 
+### Noise
+Anchored to WHO community noise guidance — 35 dB is the indoor living-area guideline, 55 dB the serious-annoyance level, and sustained exposure above 70 dB risks hearing damage. Above 70 dB the card recommends reducing the noise level:
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Quiet | < 35 dB | Green | WHO indoor living-area guideline |
+| Moderate | 35-45 dB | Light Green | Typical occupied-home background |
+| Elevated | 45-55 dB | Yellow | Noticeable, may disturb concentration/sleep |
+| Loud | 55-70 dB | Orange | WHO serious-annoyance level |
+| Very Loud | > 70 dB | Red | Prolonged exposure may harm hearing |
+
 ### Humidity
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
@@ -497,7 +509,7 @@ Informational, not a health hazard — a wide green band keeps typical weather c
 
 ## Supported Devices
 
-This card works with any sensor that provides entities for CO, Radon, CO2, PM2.5, PM10, PM4, PM1, PM0.3, HCHO, tVOC, NOx, O2, NO2, O3, Propane, humidity, temperature, or atmospheric pressure. Use any combination -- even a single sensor works. Tested with:
+This card works with any sensor that provides entities for CO, Radon, CO2, PM2.5, PM10, PM4, PM1, PM0.3, HCHO, tVOC, NOx, O2, NO2, O3, Propane, humidity, temperature, atmospheric pressure, or noise. Use any combination -- even a single sensor works. Tested with:
 
 - IKEA VINDSTYRKA / ALPSTUGA (via Matter)
 - Aqara TVOC Air Quality Monitor

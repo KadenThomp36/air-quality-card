@@ -782,7 +782,7 @@ defaultOrderCard.setConfig({ co2_entity: 'sensor.co2' });
 const defaultOrder = defaultOrderCard._getMetricOrder();
 assert(defaultOrder[0] === 'co', 'default order: co first');
 assert(defaultOrder[defaultOrder.length - 1] === 'pressure', 'default order: pressure last');
-assert(defaultOrder.length === 18, 'default order: all 18 metrics');
+assert(defaultOrder.length === 19, 'default order: all 19 metrics');
 
 section('Metric order — user override');
 
@@ -799,7 +799,7 @@ assert(reordered[3] === 'pm10', 'user order: pm10 fourth');
 assert(reordered[4] === 'pm25', 'user order: pm25 fifth');
 // Unmentioned metrics get appended in default order — user never loses a sensor
 assert(reordered.includes('radon'), 'unmentioned metrics still present');
-assert(reordered.length === 18, 'user order: total still 18');
+assert(reordered.length === 19, 'user order: total still 19');
 
 section('Metric order — invalid input');
 
@@ -1292,6 +1292,43 @@ assert(safetyChips.length === 3, 'O2 + Propane + CO2 all flagged');
 assert(safetyChips[0].metric === 'o2', 'life-safety O2 sorts first even at a lower tier color than CO2');
 assert(safetyChips[1].metric === 'c3h8', 'life-safety Propane sorts ahead of CO2 too');
 
+section('Noise sensor (#50)');
+
+assert(card._getNoiseColor(30) === '#4caf50', 'Noise 30 dB = green (quiet)');
+assert(card._getNoiseColor(40) === '#8bc34a', 'Noise 40 dB = light green (moderate)');
+assert(card._getNoiseColor(50) === '#ffc107', 'Noise 50 dB = yellow (elevated)');
+assert(card._getNoiseColor(60) === '#ff9800', 'Noise 60 dB = orange (loud)');
+assert(card._getNoiseColor(80) === '#f44336', 'Noise 80 dB = red (very loud)');
+assert(card._getMetricStatus('noise', 30) === 'Quiet', 'Noise 30 dB status = Quiet');
+assert(card._getMetricStatus('noise', 80) === 'Very Loud', 'Noise 80 dB status = Very Loud');
+
+const noiseCard = new CardClass();
+noiseCard.setConfig({ noise_entity: 'sensor.noise' });
+noiseCard._hass = { config: { unit_system: { temperature: '°C' } }, states: { 'sensor.noise': { state: '75' } } };
+assert(noiseCard._getRecommendation() === 'Reduce Noise Level', 'Noise 75 dB (>70) = Reduce Noise Level');
+noiseCard._hass.states['sensor.noise'].state = '45';
+assert(noiseCard._getRecommendation() === 'All Good', 'Noise 45 dB = All Good');
+
+// Noise never blocks life-safety or air-quality recs (it sits low in the waterfall)
+const noiseCo2 = new CardClass();
+noiseCo2.setConfig({ noise_entity: 'sensor.noise', co2_entity: 'sensor.co2' });
+noiseCo2._hass = { config: { unit_system: { temperature: '°C' } }, states: { 'sensor.noise': { state: '80' }, 'sensor.co2': { state: '2000' } } };
+assert(noiseCo2._getRecommendation() === 'Ventilate Now', 'CO2 outranks noise in the waterfall');
+
+// Localized noise status + chip label
+const noiseEs = new CardClass();
+noiseEs.setConfig({ noise_entity: 'sensor.noise', language: 'es' });
+noiseEs._hass = { config: { unit_system: { temperature: '°C' } }, states: { 'sensor.noise': { state: '80' } } };
+assert(noiseEs._getMetricStatus('noise', 80) === 'Muy ruidoso', 'es noise 80 dB → Muy ruidoso');
+const noiseChips = noiseEs._getAbnormalMetrics();
+assert(noiseChips.length === 1 && noiseChips[0].metric === 'noise', 'loud noise raises an alert chip');
+assert(noiseChips[0].label === 'Ruido', 'noise chip label localizes');
+
+// Custom thresholds
+const noiseTh = new CardClass();
+noiseTh.setConfig({ noise_entity: 'sensor.noise', noise_thresholds: [20, 30, 40, 50] });
+assert(noiseTh._getNoiseColor(45) === '#ff9800', 'custom noise thresholds apply');
+
 section('Numeric air quality index interpretation (#45)');
 
 function aqiCard(state, thresholds) {
@@ -1653,6 +1690,9 @@ card._config.o3_entity = 'sensor.o3';
 card._config.c3h8_entity = 'sensor.c3h8';
 assert(card.getCardSize() === 19, 'O2/NO2/O3/Propane add one each = 19');
 
+card._config.noise_entity = 'sensor.noise';
+assert(card.getCardSize() === 20, 'noise adds one more = 20');
+
 // ============================================================
 // GETCONFIG FORM TESTS
 // ============================================================
@@ -1683,7 +1723,7 @@ const allLabels = [
   'outdoor_co_entity', 'outdoor_hcho_entity', 'outdoor_tvoc_entity',
   'outdoor_pm1_entity', 'outdoor_pm10_entity', 'outdoor_pm03_entity', 'outdoor_nox_entity',
   'outdoor_no2_entity', 'outdoor_o3_entity',
-  'pressure_entity', 'outdoor_pressure_entity',
+  'pressure_entity', 'outdoor_pressure_entity', 'noise_entity',
   'air_quality_entity', 'hours_to_show', 'temperature_unit', 'radon_unit', 'show_min_max',
   'tvoc_unit', 'nox_unit', 'language',
   'recommendation_action', 'compact_alerts', 'auto_expand'
@@ -1723,7 +1763,7 @@ const freshCard = new CardClass();
 const expectedKeys = [
   'co2', 'pm25', 'pm1', 'pm10', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'co', 'radon', 'radon_longterm',
   'o2', 'no2', 'o3', 'c3h8',
-  'humidity', 'temperature', 'pressure',
+  'humidity', 'temperature', 'pressure', 'noise',
   'outdoor_co2', 'outdoor_pm25', 'outdoor_pm1', 'outdoor_pm10', 'outdoor_pm03',
   'outdoor_hcho', 'outdoor_tvoc', 'outdoor_nox', 'outdoor_co', 'outdoor_no2', 'outdoor_o3',
   'outdoor_humidity', 'outdoor_temperature', 'outdoor_pressure'
