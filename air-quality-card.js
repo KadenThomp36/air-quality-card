@@ -1123,6 +1123,17 @@ class AirQualityCard extends HTMLElement {
     // If air_quality_entity is configured, use it
     if (this._config.air_quality_entity) {
       const quality = this._getState(this._config.air_quality_entity);
+      // Numeric index sensors (e.g. Netatmo's health index, #45): with
+      // `air_quality_thresholds` configured, interpret the number through
+      // the usual 5-tier machinery instead of parroting the raw value.
+      const aqThresholds = this._config.air_quality_thresholds;
+      const numeric = parseFloat(quality);
+      if (Array.isArray(aqThresholds) && aqThresholds.length === 4 &&
+          aqThresholds.every(n => typeof n === 'number') && Number.isFinite(numeric)) {
+        const key = this._tieredValue(numeric, aqThresholds, ['excellent', 'good', 'fair', 'poor', 'very_poor']);
+        const color = this._tieredValue(numeric, aqThresholds, ['#4caf50', '#8bc34a', '#ffc107', '#ff9800', '#f44336']);
+        return { status: this._t('status', key), color };
+      }
       const statusKey = String(quality || '').toLowerCase().replace(/\s+/g, '_');
       const translated = this._t('status', statusKey);
       // If translation found, use it; otherwise show the raw entity state cleaned up

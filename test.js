@@ -1292,6 +1292,33 @@ assert(safetyChips.length === 3, 'O2 + Propane + CO2 all flagged');
 assert(safetyChips[0].metric === 'o2', 'life-safety O2 sorts first even at a lower tier color than CO2');
 assert(safetyChips[1].metric === 'c3h8', 'life-safety Propane sorts ahead of CO2 too');
 
+section('Numeric air quality index interpretation (#45)');
+
+function aqiCard(state, thresholds) {
+  const c = new CardClass();
+  const cfg = { co2_entity: 'sensor.co2', air_quality_entity: 'sensor.aqi' };
+  if (thresholds) cfg.air_quality_thresholds = thresholds;
+  c.setConfig(cfg);
+  c._hass = { config: { unit_system: { temperature: '°C' } }, states: { 'sensor.aqi': { state } } };
+  return c;
+}
+
+// Netatmo-style health index 0-4 with air_quality_thresholds: [1,2,3,4]
+assert(aqiCard('0', [1, 2, 3, 4])._getOverallStatus().status === 'Excellent', 'AQI 0 → Excellent');
+assert(aqiCard('2', [1, 2, 3, 4])._getOverallStatus().status === 'Fair', 'AQI 2 → Fair');
+assert(aqiCard('2', [1, 2, 3, 4])._getOverallStatus().color === '#ffc107', 'AQI 2 → yellow');
+assert(aqiCard('4', [1, 2, 3, 4])._getOverallStatus().status === 'Very Poor', 'AQI 4 → Very Poor');
+assert(aqiCard('4', [1, 2, 3, 4])._getOverallStatus().color === '#f44336', 'AQI 4 → red');
+
+// Word states still pass through even when thresholds are configured
+assert(aqiCard('good', [1, 2, 3, 4])._getOverallStatus().status === 'Good', 'word state ignores thresholds');
+
+// Without thresholds a numeric state stays a raw passthrough (pre-#45 behavior)
+assert(aqiCard('2')._getOverallStatus().status === '2', 'no thresholds → raw numeric passthrough');
+
+// Malformed thresholds fall back to passthrough instead of throwing
+assert(aqiCard('2', [1, 2, 3])._getOverallStatus().status === '2', 'wrong-length thresholds ignored');
+
 section('Y-axis scale (#52)');
 
 const yCard = new CardClass();

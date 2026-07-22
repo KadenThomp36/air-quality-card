@@ -137,6 +137,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `radon_thresholds` | array | No | `[48, 100, 148, 300]` | Custom radon thresholds (Bq/m³ — even if you display in pCi/L) |
 | `humidity_thresholds` | array | No | `[30, 40, 50, 60]` | Custom humidity thresholds (%) |
 | `pressure_thresholds` | array | No | `[990, 1005, 1025, 1040]` | Custom atmospheric pressure thresholds (hPa by default; override for inHg/mmHg) |
+| `air_quality_thresholds` | array | No | - | Interpret a numeric `air_quality_entity` through 5 tiers (Excellent/Good/Fair/Poor/Very Poor) instead of showing the raw number ([see below](#air-quality-index-entity)) |
 | `outdoor_pressure_entity` | string | No | - | Outdoor atmospheric pressure sensor for comparison |
 | `temperature_thresholds` | array | No | unit-dependent | Custom temperature thresholds (in the unit your sensor reports) |
 | `language` | string | No | "auto" | UI language. "auto" (use Home Assistant's), "en", "es", "fr", "de", "pt", "hu", or "pl" |
@@ -159,6 +160,14 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 ### Air Quality Index entity
 
 The optional `air_quality_entity` is a **passthrough**: whatever value the entity reports is shown directly on the status badge (lowercased and mapped to a color based on standard HA AQI states — `good` / `moderate` / `fair` / `poor` / `very_poor` / `extremely_poor`). The card doesn't interpret it as indoor or outdoor — use whichever entity fits your dashboard.
+
+If your index entity reports a **number** instead of a status word (e.g. Netatmo's Healthy Home Coach health index, where 0 = healthy and 4 = unhealthy), add `air_quality_thresholds` — four ascending boundaries mapping the number onto Excellent / Good / Fair / Poor / Very Poor:
+
+```yaml
+type: custom:air-quality-card
+air_quality_entity: sensor.healthy_home_coach_air_quality
+air_quality_thresholds: [1, 2, 3, 4]  # Netatmo health index: 0=Excellent … 4=Very Poor
+```
 
 If you leave it unset, the card computes the status itself from your configured CO / CO₂ / PM2.5 / radon sensors (CO and radon are prioritized as life-safety/health concerns).
 
