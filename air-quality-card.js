@@ -231,6 +231,80 @@ const TRANSLATIONS = {
       section_advanced: 'Haladó beállítások'
     }
   },
+  pl: {
+    status: {
+      excellent: 'Bardzo dobry', good: 'Dobry', moderate: 'Umiarkowany', fair: 'Dostateczny',
+      poor: 'Zły', very_poor: 'Bardzo zły', extremely_poor: 'Ekstremalnie zły', dangerous: 'Toksyczny'
+    },
+    recommendation: {
+      all_good: 'Wszystko w normie', ventilate_now: 'Wywietrz', run_air_purifier: 'Włącz oczyszczacz',
+      consider_air_purifier: 'Rozważ użycie oczyszczacza', open_window: 'Otwórz okno',
+      air_purifier_ventilate: 'Oczyszczaj i wywietrz', co_danger: 'Alarm CO — Opuść pomieszczenie!',
+      co_warning: 'Ostrzeżenie CO — Wywietrz teraz!', co_elevated: 'Podwyższone stężenie CO — Wywietrz',
+      consider_ventilating: 'Rozważ wietrzenie', keep_windows_closed: 'Nie otwieraj okien',
+      too_dry: 'Zbyt suche powietrze', too_humid: 'Zbyt wilgotne powietrze', ventilate_formaldehyde: 'Wywietrz — Formaldehyd',
+      ventilate_vocs: 'Wywietrz — LZO'
+    },
+    subtitle: {
+      air_quality_healthy: 'Powietrze w normie',
+      co_danger: 'CO {value} ppm — Niebezpieczny poziom CO!', co_danger_unknown: 'Niebezpieczny poziom CO!',
+      co_warning: 'CO {value} ppm — Otwórz okna!', co_warning_unknown: 'Wysoki poziom CO — Otwórz okna!',
+      co_elevated: 'CO {value} ppm — Popraw wentylację!', co_elevated_unknown: 'Podwyższone stężenie CO',
+      purifier_pm25: 'PM2.5 {value} μg/m³ - Przefiltruj powietrze',
+      purifier_pm10: 'PM10 {value} μg/m³ - Przefiltruj powietrze',
+      purifier_generic: 'Podwyższony poziom pyłów zawieszonych',
+      consider_purifier_pm10: 'PM10 {value} μg/m³',
+      open_window_co2: 'CO₂ {value} ppm - Pora otworzyć okna',
+      purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³',
+      ventilate_now_co2: 'CO₂ {value} ppm - Może pogarszać koncentrację',
+      ventilate_formaldehyde: 'HCHO {value} ppb - Potrzebna wentylacja',
+      ventilate_formaldehyde_unknown: 'Podwyższony poziom formaldehydu',
+      ventilate_vocs: 'LZO {value} ppb - Potrzebna wentylacja',
+      ventilate_vocs_unknown: 'Podniesiony poziom LZO',
+      too_dry: 'Wilgotność {value}% - Rozważ nawilżanie',
+      too_humid: 'Wilgotność {value}% - Wywietrz',
+      consider_ventilating_co2: 'CO₂ {value} ppm',
+      consider_ventilating_pm25: 'PM2.5 {value} μg/m³',
+      consider_ventilating_generic: 'Nieznacznie podwyższone poziomy',
+      keep_closed_outdoor_pm25_poor: 'PM2.5 na zew.: {value} μg/m³ - Nie otwieraj okien',
+      keep_closed_outdoor_pm25:'PM2.5 na zew.: {value} μg/m³ — gorzej niż wewnątrz',
+      keep_closed_outdoor_co2:'CO₂ na zew.: {value} ppm — gorzej niż wewnątrz',
+      keep_closed_generic: 'Niska jakość powietrza na zewnątrz'
+    },
+    radon: {
+      advisory_danger: 'Zagrożenie Radonem - Wymagane działanie',
+      advisory_warning: 'Radon powyżej progu działania EPA',
+      advisory_info: 'Radon - monitoruj uważnie',
+      short_term: 'Krótkoterminowy', long_term: 'Długoterminowy'
+    },
+    metric: { humidity: 'Wilgotność', temperature: 'Temperatura', pressure: 'Ciśnienie' },
+    editor: {
+      name: 'Tytuł karty', co2_entity: 'CO₂', pm25_entity: 'PM2.5',
+      humidity_entity: 'Wilgotność', temperature_entity: 'Temperatura',
+      radon_entity: 'Chwilowy poziom radonu', radon_longterm_entity: 'Średni poziom radonu',
+      co_entity: 'Tlenek węgla (CO)', hcho_entity: 'Formaldehyd (HCHO)',
+      tvoc_entity: 'LZO (tVOC)', pm4_entity: 'PM4', nox_entity: 'NOx',
+      pm1_entity: 'PM1', pm10_entity: 'PM10', pm03_entity: 'PM0.3',
+      pressure_entity: 'Ciśnienie atmosferyczne wew.',
+      outdoor_co2_entity: 'Zew. CO₂', outdoor_pm25_entity: 'Zew. PM2.5',
+      outdoor_humidity_entity: 'Zew. wilgotność', outdoor_temperature_entity: 'Zew. temperatura',
+      outdoor_co_entity: 'Zew. tlenek węgla (CO)', outdoor_hcho_entity: 'Zew. Formaldehyd (HCHO)',
+      outdoor_tvoc_entity: 'Zew. tVOC', outdoor_pm1_entity: 'Zew. PM1',
+      outdoor_pm10_entity: 'Zew. PM10', outdoor_pm03_entity: 'Zew. PM0.3',
+      outdoor_nox_entity: 'Zew. NOx', outdoor_pressure_entity: 'Ciśnienie atmosferyczne zew.',
+      air_quality_entity: 'Indeks jakości powietrza (opcjonalnie)', hours_to_show: 'Historia pomiarów',
+      temperature_unit: 'Jednostka temperatury', radon_unit: 'Jednostka radonu',
+      tvoc_unit: 'Typ pomiaru LZO (tVOC)', nox_unit: 'Typ pomiaru NOx', language: 'Język',
+      recommendation_action: 'Akcja zalecanego działania (przycisk)',
+      compact_alerts: 'Wyświetlaj ostrzeżenia w trybie zwiniętym',
+      auto_expand: 'Automatycznie rozwiń wykresy przy pogorszeniu jakości powietrza',
+      section_additional: 'Dodatkowe sensory', section_outdoor: 'Zewnętrzne sensory',
+      section_advanced: 'Zawansowane', show_min_max: 'Pokazuj min/max na wykresie',
+      order: 'Kolejność sensorów (wybierz w kolejności priorytetu)',
+      display: 'Tryb wyświetlania', tap_action: 'Akcja po kliknięciu',
+      hold_action: 'Akcja po przytrzymaniu', double_tap_action: 'Akcja po dwukrotnym kliknięciu'
+    }
+  },
 };
 
 class AirQualityCard extends HTMLElement {
@@ -2967,7 +3041,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             { name: 'hold_action', selector: { ui_action: {} } },
             { name: 'double_tap_action', selector: { ui_action: {} } },
             { name: 'recommendation_action', selector: { ui_action: {} } },
-            { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }], mode: 'dropdown' } } },
+            { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }, { value: 'pl', label: 'Polish' }], mode: 'dropdown' } } },
             { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
             { name: 'radon_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor)' }, { value: 'pCi/L', label: 'pCi/L (US)' }, { value: 'Bq/m³', label: 'Bq/m³ (International)' }], mode: 'dropdown' } } },
             { name: 'tvoc_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto-detect' }, { value: 'ppb', label: 'Absolute (ppb)' }, { value: 'index', label: 'VOC Index (Sensirion)' }], mode: 'dropdown' } } },
