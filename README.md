@@ -235,6 +235,8 @@ display: expandable
 
 In expandable mode the tap gesture is reserved for expand/collapse, so `tap_action` is ignored.
 
+If your layout gives the card a fixed height (e.g. a sections view where the card was resized, which sets `grid_options: rows:`), the expanded card pops over the cards below it instead of pushing them down. For the push-down behavior in a sections view, set the card's grid options to size automatically (`grid_options: rows: auto`).
+
 Add `auto_expand: true` to let the card manage itself: it expands automatically while any sensor reads out of range and collapses once readings have stayed normal for 5 minutes (the delay prevents flapping when a sensor hovers at a threshold). A manual tap takes over (the card stops auto-toggling until it is re-created, e.g. a page reload or dashboard edit), so the automation never fights you.
 
 ```yaml

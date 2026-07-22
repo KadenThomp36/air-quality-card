@@ -1477,6 +1477,12 @@ class AirQualityCard extends HTMLElement {
           --aq-critical: #d32f2f;
         }
 
+        /* An expanded expandable card can be taller than the slot some
+           layouts (e.g. a sections view with fixed rows) reserved for it.
+           Later sibling cards would otherwise paint over the overflow (#43),
+           so lift the expanded card above them — a pop-over, not a reflow. */
+        ${this._isExpandable() ? ':host { position: relative; z-index: 8; }' : ''}
+
         .card {
           background: var(--ha-card-background, var(--card-background-color, #fff));
           border-radius: var(--ha-card-border-radius, 12px);
