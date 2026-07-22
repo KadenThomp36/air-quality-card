@@ -186,6 +186,15 @@ assert(card._getTempColor(21) === '#4caf50', 'Temp 21C = green');
 assert(card._getTempColor(23) === '#ff9800', 'Temp 23C = orange');
 assert(card._getTempColor(28) === '#f44336', 'Temp 28C = red');
 
+section('Temperature Decimals');
+card._config.temperature_decimals = false;
+assert(card._formatTemp(21.4) === '21', 'Rounds to whole number by default');
+assert(card._formatTemp(21.6) === '22', 'Rounds up by default');
+card._config.temperature_decimals = true;
+assert(card._formatTemp(21.4) === '21.4', 'Shows one decimal when enabled');
+assert(card._formatTemp(22) === '22.0', 'Pads whole number to one decimal when enabled');
+card._config.temperature_decimals = false;
+
 // ============================================================
 // RECOMMENDATION WATERFALL TESTS
 // ============================================================
