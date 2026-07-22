@@ -3363,7 +3363,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             { name: 'hold_action', selector: { ui_action: {} } },
             { name: 'double_tap_action', selector: { ui_action: {} } },
             { name: 'recommendation_action', selector: { ui_action: {} } },
-            { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }, { value: 'pl', label: 'Polish' }], mode: 'dropdown' } } },
+            { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }, { value: 'hu', label: 'Magyar' }, { value: 'pl', label: 'Polski' }], mode: 'dropdown' } } },
             { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
             { name: 'radon_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor)' }, { value: 'pCi/L', label: 'pCi/L (US)' }, { value: 'Bq/m³', label: 'Bq/m³ (International)' }], mode: 'dropdown' } } },
             { name: 'tvoc_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto-detect' }, { value: 'ppb', label: 'Absolute (ppb)' }, { value: 'index', label: 'VOC Index (Sensirion)' }], mode: 'dropdown' } } },

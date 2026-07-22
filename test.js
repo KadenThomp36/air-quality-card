@@ -1527,6 +1527,21 @@ assert(metricCardWithLang('pt')._getMetricStatus('humidity', 20) === 'Muito Seco
 assert(metricCardWithLang('pt')._getMetricStatus('temp_c', 23) === 'Morno', 'pt temp 23°C → Morno');
 assert(metricCardWithLang('es')._getMetricStatus('temp_c', 23) === 'Cálido', 'es temp 23°C → Cálido');
 
+// New-locale packs (hu #42, pl #54) localize the header status and per-metric pills
+assert(recCardWithLang('hu', 2000)._getRecommendation() === 'Szellőztessen most', 'hu rec text: Szellőztessen most');
+assert(recCardWithLang('pl', 2000)._getRecommendation() === 'Wywietrz', 'pl rec text: Wywietrz');
+assert(metricCardWithLang('hu')._getMetricStatus('co2', 2000) === 'Gyenge', 'hu CO2 2000 → Gyenge');
+assert(metricCardWithLang('pl')._getMetricStatus('co2', 2000) === 'Zły', 'pl CO2 2000 → Zły');
+assert(metricCardWithLang('hu')._getMetricStatus('temp_c', 23) === 'Meleg', 'hu temp 23°C → Meleg');
+assert(metricCardWithLang('pl')._getMetricStatus('humidity', 20) === 'Zbyt sucho', 'pl humidity 20 → Zbyt sucho');
+
+// Status keys added after #37 (O2/pressure tiers) resolve in every locale (en text or translation, never the raw key)
+for (const lang of ['en', 'es', 'fr', 'de', 'pt', 'hu', 'pl']) {
+  const c = metricCardWithLang(lang);
+  assert(c._getMetricStatus('o2', 21) !== 'normal', `${lang}: o2 normal status resolves`);
+  assert(c._getMetricStatus('pressure', 1000) !== 'slightly_low', `${lang}: pressure slightly_low status resolves`);
+}
+
 // Icon resolution works with both key (preferred) and English text (backward-compat)
 assert(recCardWithLang('en', 2000)._getRecommendationIcon('ventilate_now') === 'mdi:alert-circle', 'icon by key');
 assert(recCardWithLang('en', 2000)._getRecommendationIcon('Ventilate Now') === 'mdi:alert-circle', 'icon by English text (backward-compat)');

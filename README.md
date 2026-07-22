@@ -138,7 +138,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `pressure_thresholds` | array | No | `[990, 1005, 1025, 1040]` | Custom atmospheric pressure thresholds (hPa by default; override for inHg/mmHg) |
 | `outdoor_pressure_entity` | string | No | - | Outdoor atmospheric pressure sensor for comparison |
 | `temperature_thresholds` | array | No | unit-dependent | Custom temperature thresholds (in the unit your sensor reports) |
-| `language` | string | No | "auto" | UI language. "auto" (use Home Assistant's), "en", "es", "fr", "de", or "pt" |
+| `language` | string | No | "auto" | UI language. "auto" (use Home Assistant's), "en", "es", "fr", "de", "pt", "hu", or "pl" |
 | `outdoor_co2_entity` | string | No | - | Outdoor CO2 sensor for comparison |
 | `outdoor_pm25_entity` | string | No | - | Outdoor PM2.5 sensor for comparison |
 | `outdoor_pm1_entity` | string | No | - | Outdoor PM1 sensor for comparison |
@@ -266,9 +266,9 @@ Notes:
 
 ### Language
 
-The card auto-detects your Home Assistant frontend language and translates the status badge, recommendations, recommendation subtitles, radon advisory titles, and editor labels. Translations included so far: **English, Spanish, French, German, Portuguese** (Spanish/French/German contributed by [@b0rv3g4r4](https://github.com/b0rv3g4r4) on PR #11, Portuguese by [@mzspicoli](https://github.com/mzspicoli) on PR #33).
+The card auto-detects your Home Assistant frontend language and translates the status badge, recommendations, recommendation subtitles, radon advisory titles, and editor labels. Translations included so far: **English, Spanish, French, German, Portuguese, Hungarian, Polish** (Spanish/French/German contributed by [@b0rv3g4r4](https://github.com/b0rv3g4r4) on PR #11, Portuguese by [@mzspicoli](https://github.com/mzspicoli) on PR #33, Hungarian by [@fema3832](https://github.com/fema3832) on PR #42, Polish by [@diijkstra](https://github.com/diijkstra) on PR #54).
 
-If auto-detection picks the wrong language, force one explicitly with `language: es` (or `en` / `fr` / `de` / `pt`).
+If auto-detection picks the wrong language, force one explicitly with `language: es` (or `en` / `fr` / `de` / `pt` / `hu` / `pl`).
 
 To contribute a new language: open a PR adding a block to the `TRANSLATIONS` const in `air-quality-card.js`. Copy the `en:` block, rename the key (e.g. `it:` for Italian), and translate the values — keep the structure identical. English is the fallback for any missing key.
 
