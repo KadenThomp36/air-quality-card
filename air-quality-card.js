@@ -362,6 +362,7 @@ class AirQualityCard extends HTMLElement {
       temperature_unit: 'auto',
       radon_unit: 'auto',
       show_min_max: false,
+      show_status_banner: true,
       display: 'full',
       compact_alerts: true,
       language: 'auto',
@@ -1714,7 +1715,7 @@ class AirQualityCard extends HTMLElement {
             </div>
           </div>
 
-          ${!this._outdoorOnly ? `
+          ${!this._outdoorOnly && this._config.show_status_banner !== false ? `
           <div class="recommendation" id="recommendation">
             <ha-icon id="rec-icon" icon="mdi:check-circle"></ha-icon>
             <div class="recommendation-text">
@@ -2885,6 +2886,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
       // English fallback for fields added after the translation pack was written.
       const localFallbacks = {
         show_min_max: 'Show min/max for each metric',
+        show_status_banner: 'Show status banner',
         order: 'Sensor Order (list of metric names)',
         display: 'Display Mode',
         tap_action: 'Tap Action',
@@ -3018,6 +3020,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
             { name: 'hours_to_show', selector: { number: { min: 1, max: 168, mode: 'box', unit_of_measurement: 'hours' } } },
             { name: 'show_min_max', selector: { boolean: {} } },
+            { name: 'show_status_banner', selector: { boolean: {} } },
             { name: 'order', selector: { select: { multiple: true, mode: 'list', options: [
               { value: 'co', label: 'CO' },
               { value: 'radon', label: 'Radon' },
@@ -3058,7 +3061,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         <div class="card-config">
           <ha-form
             .hass=${this.hass}
-            .data=${{ compact_alerts: true, ...this._config }}
+            .data=${{ compact_alerts: true, show_status_banner: true, ...this._config }}
             .schema=${this._schema()}
             .computeLabel=${this._computeLabel}
             @value-changed=${this._valueChanged}
@@ -3072,6 +3075,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
       // compact_alerts is injected into the form data as default-true; don't
       // persist it to YAML unless the user actually turned it off.
       if (newConfig.compact_alerts === true) delete newConfig.compact_alerts;
+      if (newConfig.show_status_banner === true) delete newConfig.show_status_banner;
       this.dispatchEvent(new CustomEvent('config-changed', {
         detail: { config: newConfig },
         bubbles: true,
