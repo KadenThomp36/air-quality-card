@@ -1,33 +1,63 @@
 /**
- * Air Quality Card v2.12.0
+ * Air Quality Card v2.12.1
  * A custom Home Assistant card for air quality visualization
  * Thresholds based on WHO 2021 guidelines and ASHRAE standards
  *
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.12.0';
+const CARD_VERSION = '2.12.1';
 
 // Shared color palettes for the 5-tier color scale used across metrics.
 const SCALE_AIRQUALITY = ['#4caf50', '#8bc34a', '#ffc107', '#ff9800', '#f44336']; // green → red
 const SCALE_TEMPERATURE = ['#2196f3', '#03a9f4', '#4caf50', '#ff9800', '#f44336']; // blue → red
 const SCALE_HUMIDITY = ['#ff9800', '#8bc34a', '#4caf50', '#8bc34a', '#ff9800'];   // bell
+// O2 is a safety bell (like humidity) but with red tails, not amber — both
+// oxygen-deficient and oxygen-enriched atmospheres are genuine hazards, not
+// just discomfort.
+const SCALE_O2 = ['#f44336', '#ff9800', '#4caf50', '#ff9800', '#f44336'];
 
 // Per-metric thresholds, color scale, and status labels. Users may override
 // the thresholds via config (e.g. `co2_thresholds: [500, 700, 900, 1200]`).
 // Defaults follow WHO 2021 Air Quality Guidelines and ASHRAE standards.
 //
 // Each `defaultThresholds` array has exactly 4 ascending values defining 5
-// tiers. The corresponding `colors`/`labels` arrays have exactly 5 entries.
+// tiers. The corresponding `colors`/`labelKeys` arrays have exactly 5 entries.
+// `labelKeys` are translation keys in TRANSLATIONS[<lang>].status — never raw
+// display strings — so the per-metric badge ("Poor", "Elevated", …) localizes
+// alongside the header status. Adding a new key here requires adding it to the
+// `status` group of every locale in TRANSLATIONS below.
 const METRIC_DEFS = {
-  co:         { defaultThresholds: [4, 9, 35, 100],          colors: SCALE_AIRQUALITY, labels: ['Safe', 'Low', 'Moderate', 'High', 'Dangerous'] },
-  co2:        { defaultThresholds: [600, 800, 1000, 1500],   colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  pm25:       { defaultThresholds: [5, 15, 25, 35],          colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  pm10:       { defaultThresholds: [15, 45, 75, 150],        colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  pm1:        { defaultThresholds: [5, 15, 25, 35],          colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  pm03:       { defaultThresholds: [500, 1000, 3000, 5000],  colors: SCALE_AIRQUALITY, labels: ['Clean', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  pm4:        { defaultThresholds: [10, 25, 37.5, 50],       colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  hcho:       { defaultThresholds: [20, 50, 100, 200],       colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
+  co:         { defaultThresholds: [4, 9, 35, 100],          colors: SCALE_AIRQUALITY, labelKeys: ['safe', 'low', 'moderate', 'high', 'dangerous'] },
+  co2:        { defaultThresholds: [600, 800, 1000, 1500],   colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  pm25:       { defaultThresholds: [5, 15, 25, 35],          colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  pm10:       { defaultThresholds: [15, 45, 75, 150],        colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  pm1:        { defaultThresholds: [5, 15, 25, 35],          colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  pm03:       { defaultThresholds: [500, 1000, 3000, 5000],  colors: SCALE_AIRQUALITY, labelKeys: ['clean', 'good', 'moderate', 'elevated', 'poor'] },
+  pm4:        { defaultThresholds: [10, 25, 37.5, 50],       colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  hcho:       { defaultThresholds: [20, 50, 100, 200],       colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  // NO2/O3 assume µg/m³ (this device family's native unit). NO2 anchors to
+  // WHO 2021 AQG annual/24h guidelines (10/25) plus the EU Ambient Air
+  // Quality Directive's annual/hourly limits (40/200). O3 anchors to WHO
+  // 2021's peak-season/8h guidelines (60/100) plus the EU AQD's
+  // information/alert thresholds (180/240). Override via `no2_thresholds`/
+  // `o3_thresholds` if your sensor reports ppb instead (1 ppb NO2 ≈ 1.88
+  // µg/m³, 1 ppb O3 ≈ 2.00 µg/m³).
+  no2:        { defaultThresholds: [10, 25, 40, 200],        colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  o3:         { defaultThresholds: [60, 100, 180, 240],       colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  // Propane (%vol) is a combustible-gas leak hazard, not a chronic-exposure
+  // pollutant — treated as life-safety (see _getOverallStatus/
+  // _getRecommendationKey), same as CO. Bands anchor to 10%/20%/50% of
+  // propane's 2.1%vol LEL (lower explosive limit) — the standard
+  // combustible-gas-detector alarm points (NFPA 715 / UL 2075 convention).
+  c3h8:       { defaultThresholds: [0.05, 0.21, 0.42, 1.05],  colors: SCALE_AIRQUALITY, labelKeys: ['safe', 'low', 'moderate', 'high', 'dangerous'] },
+  // O2 (%vol) is a bell around the 20.9% ambient baseline, but safety-based
+  // rather than comfort-based — there's no WHO/EPA ambient-O2 guideline, so
+  // this borrows OSHA's confined-space O2 safety bands: 19.5% is OSHA's
+  // oxygen-deficient threshold, 16% is OSHA's "dangerous" impairment level,
+  // 23.5% is OSHA's oxygen-enriched (fire risk) threshold. Below 16% is
+  // treated as life-safety (see _getOverallStatus/_getRecommendationKey).
+  o2:         { defaultThresholds: [16, 19.5, 23.5, 25],      colors: SCALE_O2,         labelKeys: ['dangerous', 'low', 'normal', 'enriched', 'dangerous'] },
   // NOx, like tVOC, comes in two flavors: absolute ppb, or the Sensirion
   // SGP41 NOx Index (unitless, 1-500, baseline 1 in clean air — unlike the
   // VOC Index which centers at 100, so the tables must differ). AirGradient
@@ -36,20 +66,25 @@ const METRIC_DEFS = {
   // and the EPA AQI USG/Unhealthy breakpoint (360). Index tiers follow
   // Sensirion's integration note / AirGradient's dashboard bands (20/150/300);
   // the 5 splits Excellent from Good at the SGP41's ±5pt repeatability spec.
-  nox_ppb:    { defaultThresholds: [20, 53, 100, 360],       colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  nox_index:  { defaultThresholds: [5, 20, 150, 300],        colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  radon:      { defaultThresholds: [48, 100, 148, 300],      colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Elevated', 'High', 'Dangerous'] },
-  humidity:   { defaultThresholds: [30, 40, 50, 60],         colors: SCALE_HUMIDITY,   labels: ['Too Dry', 'Dry', 'Comfortable', 'Humid', 'Too Humid'] },
+  nox_ppb:    { defaultThresholds: [20, 53, 100, 360],       colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  nox_index:  { defaultThresholds: [5, 20, 150, 300],        colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  radon:      { defaultThresholds: [48, 100, 148, 300],      colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'elevated', 'high', 'dangerous'] },
+  humidity:   { defaultThresholds: [30, 40, 50, 60],         colors: SCALE_HUMIDITY,   labelKeys: ['too_dry', 'dry', 'comfortable', 'humid', 'too_humid'] },
   // Atmospheric pressure is informational (not a health hazard), so it uses a
   // bell palette with a wide green band — typical weather stays calm/green.
   // Thresholds assume hPa/mbar (what Airthings and most HA sensors report);
   // override with `pressure_thresholds` for inHg/mmHg or a different band.
-  pressure:   { defaultThresholds: [990, 1005, 1025, 1040], colors: SCALE_HUMIDITY,   labels: ['Low', 'Slightly Low', 'Normal', 'Slightly High', 'High'] },
+  pressure:   { defaultThresholds: [990, 1005, 1025, 1040], colors: SCALE_HUMIDITY,   labelKeys: ['low', 'slightly_low', 'normal', 'slightly_high', 'high'] },
+  // Noise (dBA, #50) is a comfort/health metric, not an air pollutant, but it
+  // rounds out the home-environment picture. Tiers anchor to WHO community
+  // noise guidance: 35 dB indoor living-area guideline, 45 dB moderate,
+  // 55 dB the serious-annoyance level, 70 dB the long-term hearing-risk level.
+  noise:      { defaultThresholds: [35, 45, 55, 70],        colors: SCALE_AIRQUALITY, labelKeys: ['quiet', 'moderate', 'elevated', 'loud', 'very_loud'] },
   // tVOC and temperature defaults depend on mode/unit and are computed at call time.
-  tvoc_ppb:   { defaultThresholds: [100, 300, 500, 1000],    colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  tvoc_index: { defaultThresholds: [100, 150, 250, 400],     colors: SCALE_AIRQUALITY, labels: ['Excellent', 'Good', 'Moderate', 'Elevated', 'Poor'] },
-  temp_c:     { defaultThresholds: [18, 20, 22, 24],         colors: SCALE_TEMPERATURE, labels: ['Cold', 'Cool', 'Comfortable', 'Warm', 'Hot'] },
-  temp_f:     { defaultThresholds: [65, 68, 72, 76],         colors: SCALE_TEMPERATURE, labels: ['Cold', 'Cool', 'Comfortable', 'Warm', 'Hot'] }
+  tvoc_ppb:   { defaultThresholds: [100, 300, 500, 1000],    colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  tvoc_index: { defaultThresholds: [100, 150, 250, 400],     colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  temp_c:     { defaultThresholds: [18, 20, 22, 24],         colors: SCALE_TEMPERATURE, labelKeys: ['cold', 'cool', 'comfortable', 'warm', 'hot'] },
+  temp_f:     { defaultThresholds: [65, 68, 72, 76],         colors: SCALE_TEMPERATURE, labelKeys: ['cold', 'cool', 'comfortable', 'warm', 'hot'] }
 };
 
 // Embedded translations. Spanish/French/German contributed by @b0rv3g4r4 on
@@ -60,7 +95,12 @@ const TRANSLATIONS = {
   en: {
     status: {
       excellent: 'Excellent', good: 'Good', moderate: 'Moderate', fair: 'Fair',
-      poor: 'Poor', very_poor: 'Very Poor', extremely_poor: 'Extremely Poor', dangerous: 'Dangerous'
+      poor: 'Poor', very_poor: 'Very Poor', extremely_poor: 'Extremely Poor', dangerous: 'Dangerous',
+      safe: 'Safe', low: 'Low', high: 'High', elevated: 'Elevated', clean: 'Clean',
+      too_dry: 'Too Dry', dry: 'Dry', comfortable: 'Comfortable', humid: 'Humid', too_humid: 'Too Humid',
+      cold: 'Cold', cool: 'Cool', warm: 'Warm', hot: 'Hot',
+      normal: 'Normal', enriched: 'Enriched', slightly_low: 'Slightly Low', slightly_high: 'Slightly High',
+      quiet: 'Quiet', loud: 'Loud', very_loud: 'Very Loud'
     },
     recommendation: {
       all_good: 'All Good', ventilate_now: 'Ventilate Now', run_air_purifier: 'Run Air Purifier',
@@ -69,13 +109,23 @@ const TRANSLATIONS = {
       co_warning: 'CO Warning — Ventilate Now', co_elevated: 'CO Elevated — Ventilate',
       consider_ventilating: 'Consider Ventilating', keep_windows_closed: 'Keep Windows Closed',
       too_dry: 'Too Dry', too_humid: 'Too Humid', ventilate_formaldehyde: 'Ventilate — Formaldehyde',
-      ventilate_vocs: 'Ventilate — VOCs Elevated'
+      ventilate_vocs: 'Ventilate — VOCs Elevated',
+      propane_danger: 'Gas Leak Danger — Evacuate', propane_warning: 'Gas Leak Warning — Ventilate Now',
+      o2_danger: 'Low Oxygen Danger — Leave Area', o2_warning: 'Low Oxygen Warning — Ventilate Now',
+      ventilate_no2: 'Ventilate — NO₂ Elevated', ventilate_o3: 'Ventilate — O₃ Elevated',
+      reduce_noise: 'Reduce Noise Level'
     },
     subtitle: {
       air_quality_healthy: 'Air quality is within healthy limits',
       co_danger: 'CO at {value} ppm — dangerous levels detected', co_danger_unknown: 'Dangerous CO levels',
       co_warning: 'CO at {value} ppm — open all windows immediately', co_warning_unknown: 'High CO levels',
       co_elevated: 'CO at {value} ppm — improve ventilation', co_elevated_unknown: 'CO levels elevated',
+      propane_danger: 'Propane at {value}% — explosive levels, evacuate immediately', propane_danger_unknown: 'Dangerous propane levels',
+      propane_warning: 'Propane at {value}% — possible gas leak, ventilate now', propane_warning_unknown: 'Elevated propane levels',
+      o2_danger: 'O₂ at {value}% — dangerously low oxygen levels', o2_danger_unknown: 'Dangerously low oxygen levels',
+      o2_warning: 'O₂ at {value}% — improve ventilation', o2_warning_unknown: 'Low oxygen levels',
+      ventilate_no2: 'NO₂ at {value} µg/m³ - ventilation needed', ventilate_no2_unknown: 'NO₂ levels elevated',
+      ventilate_o3: 'O₃ at {value} µg/m³ - ventilation needed', ventilate_o3_unknown: 'O₃ levels elevated',
       purifier_pm25: 'PM2.5 at {value} μg/m³ - filter the air',
       purifier_pm10: 'PM10 at {value} μg/m³ - filter the air',
       purifier_generic: 'Particulate levels elevated',
@@ -95,7 +145,8 @@ const TRANSLATIONS = {
       keep_closed_outdoor_pm25_poor: 'Outdoor PM2.5 at {value} μg/m³ - poor outdoor air',
       keep_closed_outdoor_pm25: 'Outdoor PM2.5 at {value} μg/m³ - worse than indoor',
       keep_closed_outdoor_co2: 'Outdoor CO₂ at {value} ppm - worse than indoor',
-      keep_closed_generic: 'Outdoor air quality is worse than indoor'
+      keep_closed_generic: 'Outdoor air quality is worse than indoor',
+      reduce_noise: 'Noise at {value} dB - prolonged exposure may harm hearing', reduce_noise_unknown: 'Noise levels elevated'
     },
     radon: {
       advisory_danger: 'Radon High - Mitigation Needed',
@@ -103,7 +154,7 @@ const TRANSLATIONS = {
       advisory_info: 'Radon - Monitor Closely',
       short_term: 'Short-term', long_term: 'Long-term'
     },
-    metric: { humidity: 'Humidity', temperature: 'Temperature', pressure: 'Pressure' },
+    metric: { humidity: 'Humidity', temperature: 'Temperature', pressure: 'Pressure', noise: 'Noise' },
     editor: {
       name: 'Card Name', co2_entity: 'CO₂ Sensor', pm25_entity: 'PM2.5 Sensor',
       humidity_entity: 'Humidity Sensor', temperature_entity: 'Temperature Sensor',
@@ -111,13 +162,16 @@ const TRANSLATIONS = {
       co_entity: 'CO (Carbon Monoxide) Sensor', hcho_entity: 'Formaldehyde (HCHO) Sensor',
       tvoc_entity: 'tVOC Sensor', pm4_entity: 'PM4 Sensor', nox_entity: 'NOx Sensor',
       pm1_entity: 'PM1 Sensor', pm10_entity: 'PM10 Sensor', pm03_entity: 'PM0.3 Sensor',
-      pressure_entity: 'Atmospheric Pressure Sensor',
+      pressure_entity: 'Atmospheric Pressure Sensor', noise_entity: 'Noise Sensor (dB)',
+      o2_entity: 'Oxygen (O₂) Sensor', no2_entity: 'Nitrogen Dioxide (NO₂) Sensor',
+      o3_entity: 'Ozone (O₃) Sensor', c3h8_entity: 'Propane (C₃H₈) Sensor',
       outdoor_co2_entity: 'Outdoor CO₂', outdoor_pm25_entity: 'Outdoor PM2.5',
       outdoor_humidity_entity: 'Outdoor Humidity', outdoor_temperature_entity: 'Outdoor Temperature',
       outdoor_co_entity: 'Outdoor CO', outdoor_hcho_entity: 'Outdoor HCHO',
       outdoor_tvoc_entity: 'Outdoor tVOC', outdoor_pm1_entity: 'Outdoor PM1',
       outdoor_pm10_entity: 'Outdoor PM10', outdoor_pm03_entity: 'Outdoor PM0.3',
       outdoor_nox_entity: 'Outdoor NOx', outdoor_pressure_entity: 'Outdoor Pressure',
+      outdoor_no2_entity: 'Outdoor NO₂', outdoor_o3_entity: 'Outdoor O₃',
       air_quality_entity: 'Air Quality Index (optional)', hours_to_show: 'Graph History',
       temperature_unit: 'Temperature Unit', temperature_decimals: 'Show temperature with one decimal', radon_unit: 'Radon Unit',
       tvoc_unit: 'tVOC Measurement Type', nox_unit: 'NOx Measurement Type', language: 'Language',
@@ -129,37 +183,194 @@ const TRANSLATIONS = {
     }
   },
   es: {
-    status: { excellent: 'Excelente', good: 'Bueno', moderate: 'Moderado', fair: 'Regular', poor: 'Malo', very_poor: 'Muy malo', extremely_poor: 'Extremadamente malo', dangerous: 'Peligroso' },
-    recommendation: { all_good: 'Todo bien', ventilate_now: 'Ventila ahora', run_air_purifier: 'Enciende el purificador', consider_air_purifier: 'Plantéate usar un purificador', open_window: 'Abre la ventana', air_purifier_ventilate: 'Purificador y ventilación', co_danger: 'Peligro por CO — evacúa la zona', co_warning: 'Alerta de CO — ventila ahora', co_elevated: 'CO elevado — ventila', consider_ventilating: 'Considera ventilar', keep_windows_closed: 'Mantén las ventanas cerradas', too_dry: 'Demasiado seco', too_humid: 'Demasiado húmedo', ventilate_formaldehyde: 'Ventila — formaldehído', ventilate_vocs: 'Ventila — COV elevados' },
-    subtitle: { air_quality_healthy: 'La calidad del aire está dentro de límites saludables', co_danger: 'CO en {value} ppm — niveles peligrosos detectados', co_danger_unknown: 'Niveles de CO peligrosos', co_warning: 'CO en {value} ppm — abre todas las ventanas de inmediato', co_warning_unknown: 'Niveles de CO altos', co_elevated: 'CO en {value} ppm — mejora la ventilación', co_elevated_unknown: 'Niveles de CO elevados', purifier_pm25: 'PM2.5 en {value} μg/m³ - filtra el aire', purifier_pm10: 'PM10 en {value} μg/m³ - filtra el aire', purifier_generic: 'Niveles elevados de partículas', consider_purifier_pm10: 'PM10 en {value} μg/m³', open_window_co2: 'CO₂ en {value} ppm - hace falta aire fresco', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ en {value} ppm - puede afectar a la concentración', ventilate_formaldehyde: 'HCHO en {value} ppb - ventilación necesaria', ventilate_formaldehyde_unknown: 'Niveles de formaldehído elevados', ventilate_vocs: 'tVOC en {value} ppb - ventilación necesaria', ventilate_vocs_unknown: 'Niveles de COV elevados', too_dry: 'Humedad en {value}% - plantéate usar un humidificador', too_humid: 'Humedad en {value}% - ventila', consider_ventilating_co2: 'CO₂ en {value} ppm', consider_ventilating_pm25: 'PM2.5 en {value} μg/m³', consider_ventilating_generic: 'Niveles ligeramente elevados', keep_closed_outdoor_pm25_poor: 'PM2.5 exterior en {value} μg/m³ - mala calidad del aire exterior', keep_closed_outdoor_pm25: 'PM2.5 exterior en {value} μg/m³ - peor que en interior', keep_closed_outdoor_co2: 'CO₂ exterior en {value} ppm - peor que en interior', keep_closed_generic: 'La calidad del aire exterior es peor que en interior' },
+    status: { excellent: 'Excelente', good: 'Bueno', moderate: 'Moderado', fair: 'Regular', poor: 'Malo', very_poor: 'Muy malo', extremely_poor: 'Extremadamente malo', dangerous: 'Peligroso', safe: 'Seguro', low: 'Bajo', high: 'Alto', elevated: 'Elevado', clean: 'Limpio', too_dry: 'Demasiado seco', dry: 'Seco', comfortable: 'Confortable', humid: 'Húmedo', too_humid: 'Demasiado húmedo', cold: 'Frío', cool: 'Fresco', warm: 'Cálido', hot: 'Caliente', normal: 'Normal', enriched: 'Enriquecido', slightly_low: 'Ligeramente baja', slightly_high: 'Ligeramente alta', quiet: 'Silencioso', loud: 'Ruidoso', very_loud: 'Muy ruidoso' },
+    recommendation: { all_good: 'Todo bien', ventilate_now: 'Ventila ahora', run_air_purifier: 'Enciende el purificador', consider_air_purifier: 'Plantéate usar un purificador', open_window: 'Abre la ventana', air_purifier_ventilate: 'Purificador y ventilación', co_danger: 'Peligro por CO — evacúa la zona', co_warning: 'Alerta de CO — ventila ahora', co_elevated: 'CO elevado — ventila', consider_ventilating: 'Considera ventilar', keep_windows_closed: 'Mantén las ventanas cerradas', too_dry: 'Demasiado seco', too_humid: 'Demasiado húmedo', ventilate_formaldehyde: 'Ventila — formaldehído', ventilate_vocs: 'Ventila — COV elevados', propane_danger: 'Peligro de fuga de gas — evacúa', propane_warning: 'Alerta de fuga de gas — ventila ahora', o2_danger: 'Peligro de oxígeno bajo — abandona la zona', o2_warning: 'Alerta de oxígeno bajo — ventila ahora', ventilate_no2: 'Ventila — NO₂ elevado', ventilate_o3: 'Ventila — O₃ elevado', reduce_noise: 'Reduce el nivel de ruido' },
+    subtitle: { air_quality_healthy: 'La calidad del aire está dentro de límites saludables', co_danger: 'CO en {value} ppm — niveles peligrosos detectados', co_danger_unknown: 'Niveles de CO peligrosos', co_warning: 'CO en {value} ppm — abre todas las ventanas de inmediato', co_warning_unknown: 'Niveles de CO altos', co_elevated: 'CO en {value} ppm — mejora la ventilación', co_elevated_unknown: 'Niveles de CO elevados', propane_danger: 'Propano en {value}% — niveles explosivos, evacúa de inmediato', propane_danger_unknown: 'Niveles de propano peligrosos', propane_warning: 'Propano en {value}% — posible fuga de gas, ventila ahora', propane_warning_unknown: 'Niveles de propano elevados', o2_danger: 'O₂ en {value}% — niveles de oxígeno peligrosamente bajos', o2_danger_unknown: 'Niveles de oxígeno peligrosamente bajos', o2_warning: 'O₂ en {value}% — mejora la ventilación', o2_warning_unknown: 'Niveles de oxígeno bajos', ventilate_no2: 'NO₂ en {value} µg/m³ - ventilación necesaria', ventilate_no2_unknown: 'Niveles de NO₂ elevados', ventilate_o3: 'O₃ en {value} µg/m³ - ventilación necesaria', ventilate_o3_unknown: 'Niveles de O₃ elevados', purifier_pm25: 'PM2.5 en {value} μg/m³ - filtra el aire', purifier_pm10: 'PM10 en {value} μg/m³ - filtra el aire', purifier_generic: 'Niveles elevados de partículas', consider_purifier_pm10: 'PM10 en {value} μg/m³', open_window_co2: 'CO₂ en {value} ppm - hace falta aire fresco', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ en {value} ppm - puede afectar a la concentración', ventilate_formaldehyde: 'HCHO en {value} ppb - ventilación necesaria', ventilate_formaldehyde_unknown: 'Niveles de formaldehído elevados', ventilate_vocs: 'tVOC en {value} ppb - ventilación necesaria', ventilate_vocs_unknown: 'Niveles de COV elevados', too_dry: 'Humedad en {value}% - plantéate usar un humidificador', too_humid: 'Humedad en {value}% - ventila', consider_ventilating_co2: 'CO₂ en {value} ppm', consider_ventilating_pm25: 'PM2.5 en {value} μg/m³', consider_ventilating_generic: 'Niveles ligeramente elevados', keep_closed_outdoor_pm25_poor: 'PM2.5 exterior en {value} μg/m³ - mala calidad del aire exterior', keep_closed_outdoor_pm25: 'PM2.5 exterior en {value} μg/m³ - peor que en interior', keep_closed_outdoor_co2: 'CO₂ exterior en {value} ppm - peor que en interior', keep_closed_generic: 'La calidad del aire exterior es peor que en interior', reduce_noise: 'Ruido en {value} dB - la exposición prolongada puede dañar la audición', reduce_noise_unknown: 'Niveles de ruido elevados' },
     radon: { advisory_danger: 'Radón alto — se necesita mitigación', advisory_warning: 'Radón por encima del nivel de acción EPA', advisory_info: 'Radón — monitorear de cerca', short_term: 'Corto plazo', long_term: 'Largo plazo' },
-    metric: { humidity: 'Humedad', temperature: 'Temperatura', pressure: 'Presión' },
-    editor: { name: 'Nombre de la tarjeta', co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de humedad', temperature_entity: 'Sensor de temperatura', radon_entity: 'Sensor de radón', radon_longterm_entity: 'Sensor de radón (largo plazo)', co_entity: 'Sensor de CO (monóxido de carbono)', hcho_entity: 'Sensor de formaldehído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de presión atmosférica', outdoor_co2_entity: 'CO₂ exterior', outdoor_pm25_entity: 'PM2.5 exterior', outdoor_humidity_entity: 'Humedad exterior', outdoor_temperature_entity: 'Temperatura exterior', outdoor_co_entity: 'CO exterior', outdoor_hcho_entity: 'HCHO exterior', outdoor_tvoc_entity: 'tVOC exterior', outdoor_pm1_entity: 'PM1 exterior', outdoor_pm10_entity: 'PM10 exterior', outdoor_pm03_entity: 'PM0.3 exterior', outdoor_nox_entity: 'NOx exterior', outdoor_pressure_entity: 'Presión exterior', air_quality_entity: 'Índice de calidad del aire (opcional)', hours_to_show: 'Historial del gráfico', temperature_unit: 'Unidad de temperatura', temperature_decimals: 'Mostrar temperatura con un decimal', radon_unit: 'Unidad de radón', tvoc_unit: 'Tipo de medición tVOC', nox_unit: 'Tipo de medición NOx', language: 'Idioma', recommendation_action: 'Acción de recomendación (botón)', compact_alerts: 'Indicadores de alerta al plegar', auto_expand: 'Expandir automáticamente si la calidad del aire empeora', section_additional: 'Sensores adicionales', section_outdoor: 'Sensores exteriores', section_advanced: 'Avanzado' }
+    metric: { humidity: 'Humedad', temperature: 'Temperatura', pressure: 'Presión', noise: 'Ruido' },
+    editor: { name: 'Nombre de la tarjeta', co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de humedad', temperature_entity: 'Sensor de temperatura', radon_entity: 'Sensor de radón', radon_longterm_entity: 'Sensor de radón (largo plazo)', co_entity: 'Sensor de CO (monóxido de carbono)', hcho_entity: 'Sensor de formaldehído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de presión atmosférica', noise_entity: 'Sensor de ruido (dB)', o2_entity: 'Sensor de oxígeno (O₂)', no2_entity: 'Sensor de dióxido de nitrógeno (NO₂)', o3_entity: 'Sensor de ozono (O₃)', c3h8_entity: 'Sensor de propano (C₃H₈)', outdoor_co2_entity: 'CO₂ exterior', outdoor_pm25_entity: 'PM2.5 exterior', outdoor_humidity_entity: 'Humedad exterior', outdoor_temperature_entity: 'Temperatura exterior', outdoor_co_entity: 'CO exterior', outdoor_hcho_entity: 'HCHO exterior', outdoor_tvoc_entity: 'tVOC exterior', outdoor_pm1_entity: 'PM1 exterior', outdoor_pm10_entity: 'PM10 exterior', outdoor_pm03_entity: 'PM0.3 exterior', outdoor_nox_entity: 'NOx exterior', outdoor_no2_entity: 'NO₂ exterior', outdoor_o3_entity: 'O₃ exterior', outdoor_pressure_entity: 'Presión exterior', air_quality_entity: 'Índice de calidad del aire (opcional)', hours_to_show: 'Historial del gráfico', temperature_unit: 'Unidad de temperatura', temperature_decimals: 'Mostrar temperatura con un decimal', radon_unit: 'Unidad de radón', tvoc_unit: 'Tipo de medición tVOC', nox_unit: 'Tipo de medición NOx', language: 'Idioma', recommendation_action: 'Acción de recomendación (botón)', compact_alerts: 'Indicadores de alerta al plegar', auto_expand: 'Expandir automáticamente si la calidad del aire empeora', section_additional: 'Sensores adicionales', section_outdoor: 'Sensores exteriores', section_advanced: 'Avanzado' }
   },
   fr: {
-    status: { excellent: 'Excellent', good: 'Bon', moderate: 'Modéré', fair: 'Passable', poor: 'Mauvais', very_poor: 'Très mauvais', extremely_poor: 'Extrêmement mauvais', dangerous: 'Dangereux' },
-    recommendation: { all_good: 'Tout va bien', ventilate_now: 'Ventiler maintenant', run_air_purifier: 'Utiliser le purificateur', consider_air_purifier: 'Envisager le purificateur', open_window: 'Ouvrir une fenêtre', air_purifier_ventilate: 'Purificateur + Ventiler', co_danger: 'Danger au CO — évacuer', co_warning: 'Alerte CO — ventiler maintenant', co_elevated: 'CO élevé — ventiler', consider_ventilating: 'Envisager de ventiler', keep_windows_closed: 'Garder les fenêtres fermées', too_dry: 'Trop sec', too_humid: 'Trop humide', ventilate_formaldehyde: 'Ventiler — Formaldéhyde', ventilate_vocs: 'Ventiler — COV élevés' },
-    subtitle: { air_quality_healthy: "La qualité de l'air est dans les limites saines", co_danger: 'CO à {value} ppm — niveaux dangereux détectés', co_danger_unknown: 'Niveaux de CO dangereux', co_warning: 'CO à {value} ppm — ouvrir toutes les fenêtres immédiatement', co_warning_unknown: 'Niveaux de CO élevés', co_elevated: 'CO à {value} ppm — améliorer la ventilation', co_elevated_unknown: 'Niveaux de CO élevés', purifier_pm25: "PM2.5 à {value} μg/m³ - filtrer l'air", purifier_pm10: "PM10 à {value} μg/m³ - filtrer l'air", purifier_generic: 'Niveaux de particules élevés', consider_purifier_pm10: 'PM10 à {value} μg/m³', open_window_co2: 'CO₂ à {value} ppm - air frais nécessaire', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ à {value} ppm - peut affecter la concentration', ventilate_formaldehyde: 'HCHO à {value} ppb - ventilation nécessaire', ventilate_formaldehyde_unknown: 'Niveaux de formaldéhyde élevés', ventilate_vocs: 'tVOC à {value} ppb - ventilation nécessaire', ventilate_vocs_unknown: 'Niveaux de COV élevés', too_dry: 'Humidité à {value}% - utiliser un humidificateur', too_humid: 'Humidité à {value}% - ventiler', consider_ventilating_co2: 'CO₂ à {value} ppm', consider_ventilating_pm25: 'PM2.5 à {value} μg/m³', consider_ventilating_generic: 'Niveaux légèrement élevés', keep_closed_outdoor_pm25_poor: 'PM2.5 extérieur à {value} μg/m³ - mauvaise qualité extérieure', keep_closed_outdoor_pm25: "PM2.5 extérieur à {value} μg/m³ - pire qu'à l'intérieur", keep_closed_outdoor_co2: "CO₂ extérieur à {value} ppm - pire qu'à l'intérieur", keep_closed_generic: "La qualité de l'air extérieur est pire qu'à l'intérieur" },
+    status: { excellent: 'Excellent', good: 'Bon', moderate: 'Modéré', fair: 'Passable', poor: 'Mauvais', very_poor: 'Très mauvais', extremely_poor: 'Extrêmement mauvais', dangerous: 'Dangereux', safe: 'Sûr', low: 'Faible', high: 'Très élevé', elevated: 'Élevé', clean: 'Propre', too_dry: 'Trop sec', dry: 'Sec', comfortable: 'Confortable', humid: 'Humide', too_humid: 'Trop humide', cold: 'Froid', cool: 'Frais', warm: 'Chaud', hot: 'Très chaud', normal: 'Normale', enriched: 'Enrichi', slightly_low: 'Légèrement basse', slightly_high: 'Légèrement haute', quiet: 'Silencieux', loud: 'Bruyant', very_loud: 'Très bruyant' },
+    recommendation: { all_good: 'Tout va bien', ventilate_now: 'Ventiler maintenant', run_air_purifier: 'Utiliser le purificateur', consider_air_purifier: 'Envisager le purificateur', open_window: 'Ouvrir une fenêtre', air_purifier_ventilate: 'Purificateur + Ventiler', co_danger: 'Danger au CO — évacuer', co_warning: 'Alerte CO — ventiler maintenant', co_elevated: 'CO élevé — ventiler', consider_ventilating: 'Envisager de ventiler', keep_windows_closed: 'Garder les fenêtres fermées', too_dry: 'Trop sec', too_humid: 'Trop humide', ventilate_formaldehyde: 'Ventiler — Formaldéhyde', ventilate_vocs: 'Ventiler — COV élevés', propane_danger: 'Danger de fuite de gaz — évacuer', propane_warning: 'Alerte fuite de gaz — ventiler maintenant', o2_danger: "Danger d'oxygène bas — quitter la zone", o2_warning: 'Alerte oxygène bas — ventiler maintenant', ventilate_no2: 'Ventiler — NO₂ élevé', ventilate_o3: 'Ventiler — O₃ élevé', reduce_noise: 'Réduire le niveau sonore' },
+    subtitle: { air_quality_healthy: "La qualité de l'air est dans les limites saines", co_danger: 'CO à {value} ppm — niveaux dangereux détectés', co_danger_unknown: 'Niveaux de CO dangereux', co_warning: 'CO à {value} ppm — ouvrir toutes les fenêtres immédiatement', co_warning_unknown: 'Niveaux de CO élevés', co_elevated: 'CO à {value} ppm — améliorer la ventilation', co_elevated_unknown: 'Niveaux de CO élevés', propane_danger: 'Propane à {value}% — niveaux explosifs, évacuer immédiatement', propane_danger_unknown: 'Niveaux de propane dangereux', propane_warning: 'Propane à {value}% — fuite de gaz possible, ventiler maintenant', propane_warning_unknown: 'Niveaux de propane élevés', o2_danger: "O₂ à {value}% — niveaux d'oxygène dangereusement bas", o2_danger_unknown: "Niveaux d'oxygène dangereusement bas", o2_warning: 'O₂ à {value}% — améliorer la ventilation', o2_warning_unknown: "Niveaux d'oxygène bas", ventilate_no2: 'NO₂ à {value} µg/m³ - ventilation nécessaire', ventilate_no2_unknown: 'Niveaux de NO₂ élevés', ventilate_o3: 'O₃ à {value} µg/m³ - ventilation nécessaire', ventilate_o3_unknown: 'Niveaux de O₃ élevés', purifier_pm25: "PM2.5 à {value} μg/m³ - filtrer l'air", purifier_pm10: "PM10 à {value} μg/m³ - filtrer l'air", purifier_generic: 'Niveaux de particules élevés', consider_purifier_pm10: 'PM10 à {value} μg/m³', open_window_co2: 'CO₂ à {value} ppm - air frais nécessaire', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ à {value} ppm - peut affecter la concentration', ventilate_formaldehyde: 'HCHO à {value} ppb - ventilation nécessaire', ventilate_formaldehyde_unknown: 'Niveaux de formaldéhyde élevés', ventilate_vocs: 'tVOC à {value} ppb - ventilation nécessaire', ventilate_vocs_unknown: 'Niveaux de COV élevés', too_dry: 'Humidité à {value}% - utiliser un humidificateur', too_humid: 'Humidité à {value}% - ventiler', consider_ventilating_co2: 'CO₂ à {value} ppm', consider_ventilating_pm25: 'PM2.5 à {value} μg/m³', consider_ventilating_generic: 'Niveaux légèrement élevés', keep_closed_outdoor_pm25_poor: 'PM2.5 extérieur à {value} μg/m³ - mauvaise qualité extérieure', keep_closed_outdoor_pm25: "PM2.5 extérieur à {value} μg/m³ - pire qu'à l'intérieur", keep_closed_outdoor_co2: "CO₂ extérieur à {value} ppm - pire qu'à l'intérieur", keep_closed_generic: "La qualité de l'air extérieur est pire qu'à l'intérieur", reduce_noise: "Bruit à {value} dB - une exposition prolongée peut nuire à l'audition", reduce_noise_unknown: 'Niveaux de bruit élevés' },
     radon: { advisory_danger: 'Radon élevé — mitigation nécessaire', advisory_warning: "Radon au-dessus du niveau d'action EPA", advisory_info: 'Radon — surveiller de près', short_term: 'Court terme', long_term: 'Long terme' },
-    metric: { humidity: 'Humidité', temperature: 'Température', pressure: 'Pression' },
-    editor: { name: 'Nom de la carte', co2_entity: 'Capteur CO₂', pm25_entity: 'Capteur PM2.5', humidity_entity: "Capteur d'humidité", temperature_entity: 'Capteur de température', radon_entity: 'Capteur de radon', radon_longterm_entity: 'Capteur de radon (long terme)', co_entity: 'Capteur CO (Monoxyde de carbone)', hcho_entity: 'Capteur Formaldéhyde (HCHO)', tvoc_entity: 'Capteur tVOC', pm4_entity: 'Capteur PM4', nox_entity: 'Capteur NOx', pm1_entity: 'Capteur PM1', pm10_entity: 'Capteur PM10', pm03_entity: 'Capteur PM0.3', pressure_entity: 'Capteur de pression atmosphérique', outdoor_co2_entity: 'CO₂ extérieur', outdoor_pm25_entity: 'PM2.5 extérieur', outdoor_humidity_entity: 'Humidité extérieure', outdoor_temperature_entity: 'Température extérieure', outdoor_co_entity: 'CO extérieur', outdoor_hcho_entity: 'HCHO extérieur', outdoor_tvoc_entity: 'tVOC extérieur', outdoor_pm1_entity: 'PM1 extérieur', outdoor_pm10_entity: 'PM10 extérieur', outdoor_pm03_entity: 'PM0.3 extérieur', outdoor_nox_entity: 'NOx extérieur', outdoor_pressure_entity: 'Pression extérieure', air_quality_entity: "Indice de qualité de l'air (optionnel)", hours_to_show: 'Historique du graphique', temperature_unit: 'Unité de température', temperature_decimals: 'Afficher la température avec une décimale', radon_unit: 'Unité de radon', tvoc_unit: 'Type de mesure tVOC', nox_unit: 'Type de mesure NOx', language: 'Langue', recommendation_action: 'Action de recommandation (bouton)', compact_alerts: 'Badges d\'alerte en mode replié', auto_expand: 'Déplier automatiquement si la qualité de l\'air se dégrade', section_additional: 'Capteurs supplémentaires', section_outdoor: 'Capteurs extérieurs', section_advanced: 'Avancé' }
+    metric: { humidity: 'Humidité', temperature: 'Température', pressure: 'Pression', noise: 'Bruit' },
+    editor: { name: 'Nom de la carte', co2_entity: 'Capteur CO₂', pm25_entity: 'Capteur PM2.5', humidity_entity: "Capteur d'humidité", temperature_entity: 'Capteur de température', radon_entity: 'Capteur de radon', radon_longterm_entity: 'Capteur de radon (long terme)', co_entity: 'Capteur CO (Monoxyde de carbone)', hcho_entity: 'Capteur Formaldéhyde (HCHO)', tvoc_entity: 'Capteur tVOC', pm4_entity: 'Capteur PM4', nox_entity: 'Capteur NOx', pm1_entity: 'Capteur PM1', pm10_entity: 'Capteur PM10', pm03_entity: 'Capteur PM0.3', pressure_entity: 'Capteur de pression atmosphérique', noise_entity: 'Capteur de bruit (dB)', o2_entity: 'Capteur oxygène (O₂)', no2_entity: "Capteur dioxyde d'azote (NO₂)", o3_entity: 'Capteur ozone (O₃)', c3h8_entity: 'Capteur propane (C₃H₈)', outdoor_co2_entity: 'CO₂ extérieur', outdoor_pm25_entity: 'PM2.5 extérieur', outdoor_humidity_entity: 'Humidité extérieure', outdoor_temperature_entity: 'Température extérieure', outdoor_co_entity: 'CO extérieur', outdoor_hcho_entity: 'HCHO extérieur', outdoor_tvoc_entity: 'tVOC extérieur', outdoor_pm1_entity: 'PM1 extérieur', outdoor_pm10_entity: 'PM10 extérieur', outdoor_pm03_entity: 'PM0.3 extérieur', outdoor_nox_entity: 'NOx extérieur', outdoor_no2_entity: 'NO₂ extérieur', outdoor_o3_entity: 'O₃ extérieur', outdoor_pressure_entity: 'Pression extérieure', air_quality_entity: "Indice de qualité de l'air (optionnel)", hours_to_show: 'Historique du graphique', temperature_unit: 'Unité de température', temperature_decimals: 'Afficher la température avec une décimale', radon_unit: 'Unité de radon', tvoc_unit: 'Type de mesure tVOC', nox_unit: 'Type de mesure NOx', language: 'Langue', recommendation_action: 'Action de recommandation (bouton)', compact_alerts: 'Badges d\'alerte en mode replié', auto_expand: 'Déplier automatiquement si la qualité de l\'air se dégrade', section_additional: 'Capteurs supplémentaires', section_outdoor: 'Capteurs extérieurs', section_advanced: 'Avancé' }
   },
   de: {
-    status: { excellent: 'Ausgezeichnet', good: 'Gut', moderate: 'Mäßig', fair: 'Akzeptabel', poor: 'Schlecht', very_poor: 'Sehr schlecht', extremely_poor: 'Extrem schlecht', dangerous: 'Gefährlich' },
-    recommendation: { all_good: 'Alles gut', ventilate_now: 'Jetzt lüften', run_air_purifier: 'Luftreiniger einschalten', consider_air_purifier: 'Luftreiniger erwägen', open_window: 'Fenster öffnen', air_purifier_ventilate: 'Luftreiniger + Lüften', co_danger: 'CO-Gefahr — Bereich verlassen', co_warning: 'CO-Warnung — Sofort lüften', co_elevated: 'CO erhöht — Lüften', consider_ventilating: 'Lüften erwägen', keep_windows_closed: 'Fenster geschlossen halten', too_dry: 'Zu trocken', too_humid: 'Zu feucht', ventilate_formaldehyde: 'Lüften — Formaldehyd', ventilate_vocs: 'Lüften — VOC erhöht' },
-    subtitle: { air_quality_healthy: 'Luftqualität liegt innerhalb gesunder Grenzen', co_danger: 'CO bei {value} ppm — gefährliche Werte erkannt', co_danger_unknown: 'Gefährliche CO-Werte', co_warning: 'CO bei {value} ppm — alle Fenster sofort öffnen', co_warning_unknown: 'Hohe CO-Werte', co_elevated: 'CO bei {value} ppm — Belüftung verbessern', co_elevated_unknown: 'CO-Werte erhöht', purifier_pm25: 'PM2.5 bei {value} μg/m³ - Luft filtern', purifier_pm10: 'PM10 bei {value} μg/m³ - Luft filtern', purifier_generic: 'Partikelwerte erhöht', consider_purifier_pm10: 'PM10 bei {value} μg/m³', open_window_co2: 'CO₂ bei {value} ppm - Frischluft benötigt', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ bei {value} ppm - kann Konzentration beeinträchtigen', ventilate_formaldehyde: 'HCHO bei {value} ppb - Lüftung erforderlich', ventilate_formaldehyde_unknown: 'Formaldehydwerte erhöht', ventilate_vocs: 'tVOC bei {value} ppb - Lüftung erforderlich', ventilate_vocs_unknown: 'VOC-Werte erhöht', too_dry: 'Luftfeuchtigkeit bei {value}% - Luftbefeuchter empfohlen', too_humid: 'Luftfeuchtigkeit bei {value}% - Lüften', consider_ventilating_co2: 'CO₂ bei {value} ppm', consider_ventilating_pm25: 'PM2.5 bei {value} μg/m³', consider_ventilating_generic: 'Leicht erhöhte Werte', keep_closed_outdoor_pm25_poor: 'Außen PM2.5 bei {value} μg/m³ - schlechte Außenluft', keep_closed_outdoor_pm25: 'Außen PM2.5 bei {value} μg/m³ - schlechter als innen', keep_closed_outdoor_co2: 'Außen CO₂ bei {value} ppm - schlechter als innen', keep_closed_generic: 'Außenluft ist schlechter als Innenluft' },
+    status: { excellent: 'Ausgezeichnet', good: 'Gut', moderate: 'Mäßig', fair: 'Akzeptabel', poor: 'Schlecht', very_poor: 'Sehr schlecht', extremely_poor: 'Extrem schlecht', dangerous: 'Gefährlich', safe: 'Sicher', low: 'Niedrig', high: 'Hoch', elevated: 'Erhöht', clean: 'Sauber', too_dry: 'Zu trocken', dry: 'Trocken', comfortable: 'Angenehm', humid: 'Feucht', too_humid: 'Zu feucht', cold: 'Kalt', cool: 'Kühl', warm: 'Warm', hot: 'Heiß', normal: 'Normal', enriched: 'Angereichert', slightly_low: 'Leicht niedrig', slightly_high: 'Leicht hoch', quiet: 'Leise', loud: 'Laut', very_loud: 'Sehr laut' },
+    recommendation: { all_good: 'Alles gut', ventilate_now: 'Jetzt lüften', run_air_purifier: 'Luftreiniger einschalten', consider_air_purifier: 'Luftreiniger erwägen', open_window: 'Fenster öffnen', air_purifier_ventilate: 'Luftreiniger + Lüften', co_danger: 'CO-Gefahr — Bereich verlassen', co_warning: 'CO-Warnung — Sofort lüften', co_elevated: 'CO erhöht — Lüften', consider_ventilating: 'Lüften erwägen', keep_windows_closed: 'Fenster geschlossen halten', too_dry: 'Zu trocken', too_humid: 'Zu feucht', ventilate_formaldehyde: 'Lüften — Formaldehyd', ventilate_vocs: 'Lüften — VOC erhöht', propane_danger: 'Gasleck-Gefahr — Evakuieren', propane_warning: 'Gasleck-Warnung — Sofort lüften', o2_danger: 'Sauerstoffmangel-Gefahr — Bereich verlassen', o2_warning: 'Sauerstoffmangel-Warnung — Sofort lüften', ventilate_no2: 'Lüften — NO₂ erhöht', ventilate_o3: 'Lüften — O₃ erhöht', reduce_noise: 'Lärmpegel senken' },
+    subtitle: { air_quality_healthy: 'Luftqualität liegt innerhalb gesunder Grenzen', co_danger: 'CO bei {value} ppm — gefährliche Werte erkannt', co_danger_unknown: 'Gefährliche CO-Werte', co_warning: 'CO bei {value} ppm — alle Fenster sofort öffnen', co_warning_unknown: 'Hohe CO-Werte', co_elevated: 'CO bei {value} ppm — Belüftung verbessern', co_elevated_unknown: 'CO-Werte erhöht', propane_danger: 'Propan bei {value}% — explosive Werte, sofort evakuieren', propane_danger_unknown: 'Gefährliche Propanwerte', propane_warning: 'Propan bei {value}% — mögliches Gasleck, sofort lüften', propane_warning_unknown: 'Erhöhte Propanwerte', o2_danger: 'O₂ bei {value}% — gefährlich niedriger Sauerstoffgehalt', o2_danger_unknown: 'Gefährlich niedriger Sauerstoffgehalt', o2_warning: 'O₂ bei {value}% — Belüftung verbessern', o2_warning_unknown: 'Niedriger Sauerstoffgehalt', ventilate_no2: 'NO₂ bei {value} µg/m³ - Lüftung erforderlich', ventilate_no2_unknown: 'NO₂-Werte erhöht', ventilate_o3: 'O₃ bei {value} µg/m³ - Lüftung erforderlich', ventilate_o3_unknown: 'O₃-Werte erhöht', purifier_pm25: 'PM2.5 bei {value} μg/m³ - Luft filtern', purifier_pm10: 'PM10 bei {value} μg/m³ - Luft filtern', purifier_generic: 'Partikelwerte erhöht', consider_purifier_pm10: 'PM10 bei {value} μg/m³', open_window_co2: 'CO₂ bei {value} ppm - Frischluft benötigt', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ bei {value} ppm - kann Konzentration beeinträchtigen', ventilate_formaldehyde: 'HCHO bei {value} ppb - Lüftung erforderlich', ventilate_formaldehyde_unknown: 'Formaldehydwerte erhöht', ventilate_vocs: 'tVOC bei {value} ppb - Lüftung erforderlich', ventilate_vocs_unknown: 'VOC-Werte erhöht', too_dry: 'Luftfeuchtigkeit bei {value}% - Luftbefeuchter empfohlen', too_humid: 'Luftfeuchtigkeit bei {value}% - Lüften', consider_ventilating_co2: 'CO₂ bei {value} ppm', consider_ventilating_pm25: 'PM2.5 bei {value} μg/m³', consider_ventilating_generic: 'Leicht erhöhte Werte', keep_closed_outdoor_pm25_poor: 'Außen PM2.5 bei {value} μg/m³ - schlechte Außenluft', keep_closed_outdoor_pm25: 'Außen PM2.5 bei {value} μg/m³ - schlechter als innen', keep_closed_outdoor_co2: 'Außen CO₂ bei {value} ppm - schlechter als innen', keep_closed_generic: 'Außenluft ist schlechter als Innenluft', reduce_noise: 'Lärm bei {value} dB - dauerhafte Belastung kann das Gehör schädigen', reduce_noise_unknown: 'Lärmpegel erhöht' },
     radon: { advisory_danger: 'Radon hoch — Minderung erforderlich', advisory_warning: 'Radon über EPA-Eingreifrichtwert', advisory_info: 'Radon — genau beobachten', short_term: 'Kurzfristig', long_term: 'Langfristig' },
-    metric: { humidity: 'Feuchtigkeit', temperature: 'Temperatur', pressure: 'Luftdruck' },
-    editor: { name: 'Kartenname', co2_entity: 'CO₂-Sensor', pm25_entity: 'PM2.5-Sensor', humidity_entity: 'Feuchtigkeitssensor', temperature_entity: 'Temperatursensor', radon_entity: 'Radon-Sensor', radon_longterm_entity: 'Radon-Sensor (Langzeit)', co_entity: 'CO-Sensor (Kohlenmonoxid)', hcho_entity: 'Formaldehyd-Sensor (HCHO)', tvoc_entity: 'tVOC-Sensor', pm4_entity: 'PM4-Sensor', nox_entity: 'NOx-Sensor', pm1_entity: 'PM1-Sensor', pm10_entity: 'PM10-Sensor', pm03_entity: 'PM0.3-Sensor', pressure_entity: 'Luftdrucksensor', outdoor_co2_entity: 'Außen CO₂', outdoor_pm25_entity: 'Außen PM2.5', outdoor_humidity_entity: 'Außen Luftfeuchtigkeit', outdoor_temperature_entity: 'Außen Temperatur', outdoor_co_entity: 'Außen CO', outdoor_hcho_entity: 'Außen HCHO', outdoor_tvoc_entity: 'Außen tVOC', outdoor_pm1_entity: 'Außen PM1', outdoor_pm10_entity: 'Außen PM10', outdoor_pm03_entity: 'Außen PM0.3', outdoor_nox_entity: 'Außen NOx', outdoor_pressure_entity: 'Außen Luftdruck', air_quality_entity: 'Luftqualitätsindex (optional)', hours_to_show: 'Diagrammverlauf', temperature_unit: 'Temperatureinheit', temperature_decimals: 'Temperatur mit einer Dezimalstelle anzeigen', radon_unit: 'Radon-Einheit', tvoc_unit: 'tVOC-Messtyp', nox_unit: 'NOx-Messtyp', language: 'Sprache', recommendation_action: 'Empfehlungsaktion (Schaltfläche)', compact_alerts: 'Warnhinweise im eingeklappten Zustand', auto_expand: 'Automatisch ausklappen bei schlechter Luftqualität', section_additional: 'Weitere Sensoren', section_outdoor: 'Außensensoren', section_advanced: 'Erweitert' }
+    metric: { humidity: 'Feuchtigkeit', temperature: 'Temperatur', pressure: 'Luftdruck', noise: 'Lärm' },
+    editor: { name: 'Kartenname', co2_entity: 'CO₂-Sensor', pm25_entity: 'PM2.5-Sensor', humidity_entity: 'Feuchtigkeitssensor', temperature_entity: 'Temperatursensor', radon_entity: 'Radon-Sensor', radon_longterm_entity: 'Radon-Sensor (Langzeit)', co_entity: 'CO-Sensor (Kohlenmonoxid)', hcho_entity: 'Formaldehyd-Sensor (HCHO)', tvoc_entity: 'tVOC-Sensor', pm4_entity: 'PM4-Sensor', nox_entity: 'NOx-Sensor', pm1_entity: 'PM1-Sensor', pm10_entity: 'PM10-Sensor', pm03_entity: 'PM0.3-Sensor', pressure_entity: 'Luftdrucksensor', noise_entity: 'Lärmsensor (dB)', o2_entity: 'Sauerstoff-Sensor (O₂)', no2_entity: 'Stickstoffdioxid-Sensor (NO₂)', o3_entity: 'Ozon-Sensor (O₃)', c3h8_entity: 'Propan-Sensor (C₃H₈)', outdoor_co2_entity: 'Außen CO₂', outdoor_pm25_entity: 'Außen PM2.5', outdoor_humidity_entity: 'Außen Luftfeuchtigkeit', outdoor_temperature_entity: 'Außen Temperatur', outdoor_co_entity: 'Außen CO', outdoor_hcho_entity: 'Außen HCHO', outdoor_tvoc_entity: 'Außen tVOC', outdoor_pm1_entity: 'Außen PM1', outdoor_pm10_entity: 'Außen PM10', outdoor_pm03_entity: 'Außen PM0.3', outdoor_nox_entity: 'Außen NOx', outdoor_no2_entity: 'Außen NO₂', outdoor_o3_entity: 'Außen O₃', outdoor_pressure_entity: 'Außen Luftdruck', air_quality_entity: 'Luftqualitätsindex (optional)', hours_to_show: 'Diagrammverlauf', temperature_unit: 'Temperatureinheit', temperature_decimals: 'Temperatur mit einer Dezimalstelle anzeigen', radon_unit: 'Radon-Einheit', tvoc_unit: 'tVOC-Messtyp', nox_unit: 'NOx-Messtyp', language: 'Sprache', recommendation_action: 'Empfehlungsaktion (Schaltfläche)', compact_alerts: 'Warnhinweise im eingeklappten Zustand', auto_expand: 'Automatisch ausklappen bei schlechter Luftqualität', section_additional: 'Weitere Sensoren', section_outdoor: 'Außensensoren', section_advanced: 'Erweitert' }
   },
   pt: {
-    status: { excellent: 'Excelente', good: 'Bom', moderate: 'Moderado', fair: 'Regular', poor: 'Ruim', very_poor: 'Muito Ruim', extremely_poor: 'Extremamente Ruim', dangerous: 'Perigoso' },
-    recommendation: { all_good: 'Tudo Bem', ventilate_now: 'Ventile Agora', run_air_purifier: 'Ligar o Purificador', consider_air_purifier: 'Considere um Purificador', open_window: 'Abra a Janela', air_purifier_ventilate: 'Purificador + Ventilação', co_danger: 'Perigo de CO — Saia do Ambiente', co_warning: 'Alerta de CO — Ventile Agora', co_elevated: 'CO Elevado — Ventile', consider_ventilating: 'Considere Ventilar', keep_windows_closed: 'Mantenha as Janelas Fechadas', too_dry: 'Muito Seco', too_humid: 'Muito Úmido', ventilate_formaldehyde: 'Ventile — Formaldeído', ventilate_vocs: 'Ventile — COVs Elevados' },
-    subtitle: { air_quality_healthy: 'A qualidade do ar está dentro dos limites saudáveis', co_danger: 'CO em {value} ppm — níveis perigosos detectados', co_danger_unknown: 'Níveis perigosos de CO', co_warning: 'CO em {value} ppm — abra todas as janelas imediatamente', co_warning_unknown: 'Níveis altos de CO', co_elevated: 'CO em {value} ppm — melhore a ventilação', co_elevated_unknown: 'Níveis de CO elevados', purifier_pm25: 'PM2.5 em {value} μg/m³ - filtre o ar', purifier_pm10: 'PM10 em {value} μg/m³ - filtre o ar', purifier_generic: 'Níveis de partículas elevados', consider_purifier_pm10: 'PM10 em {value} μg/m³', open_window_co2: 'CO₂ em {value} ppm - ar fresco necessário', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ em {value} ppm - pode afetar a concentração', ventilate_formaldehyde: 'HCHO em {value} ppb - ventilação necessária', ventilate_formaldehyde_unknown: 'Níveis de formaldeído elevados', ventilate_vocs: 'tVOC em {value} ppb - ventilação necessária', ventilate_vocs_unknown: 'Níveis de COVs elevados', too_dry: 'Umidade em {value}% - considere um umidificador', too_humid: 'Umidade em {value}% - ventile', consider_ventilating_co2: 'CO₂ em {value} ppm', consider_ventilating_pm25: 'PM2.5 em {value} μg/m³', consider_ventilating_generic: 'Níveis levemente elevados', keep_closed_outdoor_pm25_poor: 'PM2.5 externo em {value} μg/m³ - ar externo de má qualidade', keep_closed_outdoor_pm25: 'PM2.5 externo em {value} μg/m³ - pior que o ar interno', keep_closed_outdoor_co2: 'CO₂ externo em {value} ppm - pior que o ar interno', keep_closed_generic: 'A qualidade do ar externo é pior que o interno' },
+    status: { excellent: 'Excelente', good: 'Bom', moderate: 'Moderado', fair: 'Regular', poor: 'Ruim', very_poor: 'Muito Ruim', extremely_poor: 'Extremamente Ruim', dangerous: 'Perigoso', safe: 'Seguro', low: 'Baixo', high: 'Alto', elevated: 'Elevado', clean: 'Limpo', too_dry: 'Muito Seco', dry: 'Seco', comfortable: 'Confortável', humid: 'Úmido', too_humid: 'Muito Úmido', cold: 'Frio', cool: 'Fresco', warm: 'Morno', hot: 'Quente', normal: 'Normal', enriched: 'Enriquecido', slightly_low: 'Levemente baixa', slightly_high: 'Levemente alta', quiet: 'Silencioso', loud: 'Barulhento', very_loud: 'Muito Barulhento' },
+    recommendation: { all_good: 'Tudo Bem', ventilate_now: 'Ventile Agora', run_air_purifier: 'Ligar o Purificador', consider_air_purifier: 'Considere um Purificador', open_window: 'Abra a Janela', air_purifier_ventilate: 'Purificador + Ventilação', co_danger: 'Perigo de CO — Saia do Ambiente', co_warning: 'Alerta de CO — Ventile Agora', co_elevated: 'CO Elevado — Ventile', consider_ventilating: 'Considere Ventilar', keep_windows_closed: 'Mantenha as Janelas Fechadas', too_dry: 'Muito Seco', too_humid: 'Muito Úmido', ventilate_formaldehyde: 'Ventile — Formaldeído', ventilate_vocs: 'Ventile — COVs Elevados', propane_danger: 'Perigo de Vazamento de Gás — Evacue', propane_warning: 'Alerta de Vazamento de Gás — Ventile Agora', o2_danger: 'Perigo de Oxigênio Baixo — Saia do Ambiente', o2_warning: 'Alerta de Oxigênio Baixo — Ventile Agora', ventilate_no2: 'Ventile — NO₂ Elevado', ventilate_o3: 'Ventile — O₃ Elevado', reduce_noise: 'Reduza o Nível de Ruído' },
+    subtitle: { air_quality_healthy: 'A qualidade do ar está dentro dos limites saudáveis', co_danger: 'CO em {value} ppm — níveis perigosos detectados', co_danger_unknown: 'Níveis perigosos de CO', co_warning: 'CO em {value} ppm — abra todas as janelas imediatamente', co_warning_unknown: 'Níveis altos de CO', co_elevated: 'CO em {value} ppm — melhore a ventilação', co_elevated_unknown: 'Níveis de CO elevados', propane_danger: 'Propano em {value}% — níveis explosivos, evacue imediatamente', propane_danger_unknown: 'Níveis perigosos de propano', propane_warning: 'Propano em {value}% — possível vazamento de gás, ventile agora', propane_warning_unknown: 'Níveis de propano elevados', o2_danger: 'O₂ em {value}% — níveis de oxigênio perigosamente baixos', o2_danger_unknown: 'Níveis de oxigênio perigosamente baixos', o2_warning: 'O₂ em {value}% — melhore a ventilação', o2_warning_unknown: 'Níveis de oxigênio baixos', ventilate_no2: 'NO₂ em {value} µg/m³ - ventilação necessária', ventilate_no2_unknown: 'Níveis de NO₂ elevados', ventilate_o3: 'O₃ em {value} µg/m³ - ventilação necessária', ventilate_o3_unknown: 'Níveis de O₃ elevados', purifier_pm25: 'PM2.5 em {value} μg/m³ - filtre o ar', purifier_pm10: 'PM10 em {value} μg/m³ - filtre o ar', purifier_generic: 'Níveis de partículas elevados', consider_purifier_pm10: 'PM10 em {value} μg/m³', open_window_co2: 'CO₂ em {value} ppm - ar fresco necessário', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ em {value} ppm - pode afetar a concentração', ventilate_formaldehyde: 'HCHO em {value} ppb - ventilação necessária', ventilate_formaldehyde_unknown: 'Níveis de formaldeído elevados', ventilate_vocs: 'tVOC em {value} ppb - ventilação necessária', ventilate_vocs_unknown: 'Níveis de COVs elevados', too_dry: 'Umidade em {value}% - considere um umidificador', too_humid: 'Umidade em {value}% - ventile', consider_ventilating_co2: 'CO₂ em {value} ppm', consider_ventilating_pm25: 'PM2.5 em {value} μg/m³', consider_ventilating_generic: 'Níveis levemente elevados', keep_closed_outdoor_pm25_poor: 'PM2.5 externo em {value} μg/m³ - ar externo de má qualidade', keep_closed_outdoor_pm25: 'PM2.5 externo em {value} μg/m³ - pior que o ar interno', keep_closed_outdoor_co2: 'CO₂ externo em {value} ppm - pior que o ar interno', keep_closed_generic: 'A qualidade do ar externo é pior que o interno', reduce_noise: 'Ruído em {value} dB - exposição prolongada pode prejudicar a audição', reduce_noise_unknown: 'Níveis de ruído elevados' },
     radon: { advisory_danger: 'Radônio Alto — Mitigação Necessária', advisory_warning: 'Radônio Acima do Nível de Ação da EPA', advisory_info: 'Radônio — Monitorar de Perto', short_term: 'Curto prazo', long_term: 'Longo prazo' },
-    metric: { humidity: 'Umidade', temperature: 'Temperatura', pressure: 'Pressão' },
-    editor: { name: 'Nome do Cartão', co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de Umidade', temperature_entity: 'Sensor de Temperatura', radon_entity: 'Sensor de Radônio', radon_longterm_entity: 'Sensor de Radônio (Longo Prazo)', co_entity: 'Sensor de CO (Monóxido de Carbono)', hcho_entity: 'Sensor de Formaldeído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de Pressão Atmosférica', outdoor_co2_entity: 'CO₂ Externo', outdoor_pm25_entity: 'PM2.5 Externo', outdoor_humidity_entity: 'Umidade Externa', outdoor_temperature_entity: 'Temperatura Externa', outdoor_co_entity: 'CO Externo', outdoor_hcho_entity: 'HCHO Externo', outdoor_tvoc_entity: 'tVOC Externo', outdoor_pm1_entity: 'PM1 Externo', outdoor_pm10_entity: 'PM10 Externo', outdoor_pm03_entity: 'PM0.3 Externo', outdoor_nox_entity: 'NOx Externo', outdoor_pressure_entity: 'Pressão Externa', air_quality_entity: 'Índice de Qualidade do Ar (opcional)', hours_to_show: 'Histórico do Gráfico', temperature_unit: 'Unidade de Temperatura', temperature_decimals: 'Mostrar temperatura com uma casa decimal', radon_unit: 'Unidade de Radônio', tvoc_unit: 'Tipo de Medição de tVOC', nox_unit: 'Tipo de Medição de NOx', language: 'Idioma', recommendation_action: 'Ação da recomendação (botão)', compact_alerts: 'Indicadores de alerta quando recolhido', auto_expand: 'Expandir automaticamente se a qualidade do ar piorar', section_additional: 'Sensores Adicionais', section_outdoor: 'Sensores Externos', section_advanced: 'Avançado' }
-  }
+    metric: { humidity: 'Umidade', temperature: 'Temperatura', pressure: 'Pressão', noise: 'Ruído' },
+    editor: { name: 'Nome do Cartão', co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de Umidade', temperature_entity: 'Sensor de Temperatura', radon_entity: 'Sensor de Radônio', radon_longterm_entity: 'Sensor de Radônio (Longo Prazo)', co_entity: 'Sensor de CO (Monóxido de Carbono)', hcho_entity: 'Sensor de Formaldeído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de Pressão Atmosférica', noise_entity: 'Sensor de Ruído (dB)', o2_entity: 'Sensor de Oxigênio (O₂)', no2_entity: 'Sensor de Dióxido de Nitrogênio (NO₂)', o3_entity: 'Sensor de Ozônio (O₃)', c3h8_entity: 'Sensor de Propano (C₃H₈)', outdoor_co2_entity: 'CO₂ Externo', outdoor_pm25_entity: 'PM2.5 Externo', outdoor_humidity_entity: 'Umidade Externa', outdoor_temperature_entity: 'Temperatura Externa', outdoor_co_entity: 'CO Externo', outdoor_hcho_entity: 'HCHO Externo', outdoor_tvoc_entity: 'tVOC Externo', outdoor_pm1_entity: 'PM1 Externo', outdoor_pm10_entity: 'PM10 Externo', outdoor_pm03_entity: 'PM0.3 Externo', outdoor_nox_entity: 'NOx Externo', outdoor_no2_entity: 'NO₂ Externo', outdoor_o3_entity: 'O₃ Externo', outdoor_pressure_entity: 'Pressão Externa', air_quality_entity: 'Índice de Qualidade do Ar (opcional)', hours_to_show: 'Histórico do Gráfico', temperature_unit: 'Unidade de Temperatura', temperature_decimals: 'Mostrar temperatura com uma casa decimal', radon_unit: 'Unidade de Radônio', tvoc_unit: 'Tipo de Medição de tVOC', nox_unit: 'Tipo de Medição de NOx', language: 'Idioma', recommendation_action: 'Ação da recomendação (botão)', compact_alerts: 'Indicadores de alerta quando recolhido', auto_expand: 'Expandir automaticamente se a qualidade do ar piorar', section_additional: 'Sensores Adicionais', section_outdoor: 'Sensores Externos', section_advanced: 'Avançado' }
+  },
+  hu: {
+    status: {
+      excellent: 'Kiváló', good: 'Jó', moderate: 'Mérsékelt', fair: 'Megfelelő',
+      poor: 'Gyenge', very_poor: 'Nagyon gyenge', extremely_poor: 'Kritikus', dangerous: 'Veszélyes',
+      safe: 'Biztonságos', low: 'Alacsony', high: 'Magas', elevated: 'Emelkedett', clean: 'Tiszta',
+      too_dry: 'Túl száraz', dry: 'Száraz', comfortable: 'Komfortos', humid: 'Párás', too_humid: 'Túl párás',
+      cold: 'Hideg', cool: 'Hűvös', warm: 'Meleg', hot: 'Forró',
+      normal: 'Normál', enriched: 'Dúsított', slightly_low: 'Kissé alacsony', slightly_high: 'Kissé magas',
+      quiet: 'Csendes', loud: 'Zajos', very_loud: 'Nagyon zajos'
+    },
+    recommendation: {
+      all_good: 'Minden rendben', ventilate_now: 'Szellőztessen most', run_air_purifier: 'Kapcsolja be a légtisztítót',
+      consider_air_purifier: 'Fontolja meg a légtisztító használatát', open_window: 'Nyisson ablakot',
+      air_purifier_ventilate: 'Légtisztítás + Szellőztetés', co_danger: 'CO Veszély – Hagyja el a helyiséget!',
+      co_warning: 'CO Figyelmeztetés – Szellőztessen most', co_elevated: 'CO Emelkedett – Szellőztessen',
+      consider_ventilating: 'Fontolja meg a szellőztetést', keep_windows_closed: 'Tartsa zárva az ablakokat',
+      too_dry: 'Túl száraz levegő', too_humid: 'Túl párás levegő', ventilate_formaldehyde: 'Szellőztetés – Formaldehid',
+      ventilate_vocs: 'Szellőztetés – Magas VOC szint', reduce_noise: 'Csökkentse a zajszintet'
+    },
+    subtitle: {
+      air_quality_healthy: 'A levegőminőség az egészséges határértékeken belül van',
+      co_danger: 'CO szint: {value} ppm – veszélyes szint észlelve', co_danger_unknown: 'Veszélyes CO szint',
+      co_warning: 'CO szint: {value} ppm – azonnal nyisson ablakot', co_warning_unknown: 'Magas CO szint',
+      co_elevated: 'CO szint: {value} ppm – fokozza a szellőzést', co_elevated_unknown: 'Emelkedett CO szint',
+      purifier_pm25: 'PM2.5 szint: {value} μg/m³ – tisztítsa a levegőt',
+      purifier_pm10: 'PM10 szint: {value} μg/m³ – tisztítsa a levegőt',
+      purifier_generic: 'A szálló por szintje emelkedett',
+      consider_purifier_pm10: 'PM10 szint: {value} μg/m³',
+      open_window_co2: 'CO₂ szint: {value} ppm – friss levegő szükséges',
+      purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³',
+      ventilate_now_co2: 'CO₂ szint: {value} ppm – befolyásolhatja a koncentrációt',
+      ventilate_formaldehyde: 'HCHO szint: {value} ppb – szellőztetés szükséges',
+      ventilate_formaldehyde_unknown: 'Emelkedett formaldehid szint',
+      ventilate_vocs: 'tVOC szint: {value} ppb – szellőztetés szükséges',
+      ventilate_vocs_unknown: 'Emelkedett VOC szint',
+      too_dry: 'Páratartalom: {value}% – fontolja meg párásító használatát',
+      too_humid: 'Páratartalom: {value}% – szellőztessen',
+      consider_ventilating_co2: 'CO₂ szint: {value} ppm',
+      consider_ventilating_pm25: 'PM2.5 szint: {value} μg/m³',
+      consider_ventilating_generic: 'Enyhén emelkedett szintek',
+      keep_closed_outdoor_pm25_poor: 'Kültéri PM2.5: {value} μg/m³ – rossz kinti levegő',
+      keep_closed_outdoor_pm25: 'Kültéri PM2.5: {value} μg/m³ – rosszabb, mint bent',
+      keep_closed_outdoor_co2: 'Kültéri CO₂: {value} ppm – rosszabb, mint bent',
+      keep_closed_generic: 'A kültéri levegőminőség rosszabb, mint a benti',
+      reduce_noise: 'Zajszint: {value} dB – tartósan halláskárosodást okozhat', reduce_noise_unknown: 'Magas zajszint'
+    },
+    radon: {
+      advisory_danger: 'Magas Radon szint – Beavatkozás szükséges',
+      advisory_warning: 'Radon az EPA intézkedési szint felett',
+      advisory_info: 'Radon – Kísérje figyelemmel',
+      short_term: 'Rövid távú', long_term: 'Hosszú távú'
+    },
+    metric: { humidity: 'Páratartalom', temperature: 'Hőmérséklet', pressure: 'Légnyomás', noise: 'Zaj' },
+    editor: {
+      name: 'Kártya neve', co2_entity: 'CO₂ szenzor', pm25_entity: 'PM2.5 szenzor',
+      humidity_entity: 'Páratartalom szenzor', temperature_entity: 'Hőmérséklet szenzor',
+      radon_entity: 'Radon szenzor', radon_longterm_entity: 'Radon (hosszú távú) szenzor',
+      co_entity: 'CO (Szén-monoxid) szenzor', hcho_entity: 'Formaldehid (HCHO) szenzor',
+      tvoc_entity: 'tVOC szenzor', pm4_entity: 'PM4 szenzor', nox_entity: 'NOx szenzor',
+      pm1_entity: 'PM1 szenzor', pm10_entity: 'PM10 szenzor', pm03_entity: 'PM0.3 szenzor',
+      pressure_entity: 'Légnyomás szenzor', noise_entity: 'Zajszenzor (dB)',
+      outdoor_co2_entity: 'Kültéri CO₂', outdoor_pm25_entity: 'Kültéri PM2.5',
+      outdoor_humidity_entity: 'Kültéri páratartalom', outdoor_temperature_entity: 'Kültéri hőmérséklet',
+      outdoor_co_entity: 'Kültéri CO', outdoor_hcho_entity: 'Kültéri HCHO',
+      outdoor_tvoc_entity: 'Kültéri tVOC', outdoor_pm1_entity: 'Kültéri PM1',
+      outdoor_pm10_entity: 'Kültéri PM10', outdoor_pm03_entity: 'Kültéri PM0.3',
+      outdoor_nox_entity: 'Kültéri NOx', outdoor_pressure_entity: 'Kültéri légnyomás',
+      air_quality_entity: 'Levegőminőségi index (opcionális)', hours_to_show: 'Grafikon előzmények (óra)',
+      temperature_unit: 'Hőmérséklet mértékegysége', temperature_decimals: 'Hőmérséklet egy tizedesjeggyel', radon_unit: 'Radon mértékegysége',
+      tvoc_unit: 'tVOC mérés típusa', nox_unit: 'NOx mérés típusa', language: 'Nyelv',
+      recommendation_action: 'Ajánlás akciógomb',
+      compact_alerts: 'Figyelmeztető ikonok összecsukott állapotban',
+      auto_expand: 'Automatikus kibontás romló levegőminőségnél',
+      section_additional: 'További szenzorok', section_outdoor: 'Kültéri szenzorok',
+      section_advanced: 'Haladó beállítások'
+    }
+  },
+  pl: {
+    status: {
+      excellent: 'Bardzo dobry', good: 'Dobry', moderate: 'Umiarkowany', fair: 'Dostateczny',
+      poor: 'Zły', very_poor: 'Bardzo zły', extremely_poor: 'Ekstremalnie zły', dangerous: 'Toksyczny',
+      safe: 'Bezpieczny', low: 'Niski', high: 'Wysoki', elevated: 'Podwyższony', clean: 'Czysty',
+      too_dry: 'Zbyt sucho', dry: 'Sucho', comfortable: 'Komfortowo', humid: 'Wilgotno', too_humid: 'Zbyt wilgotno',
+      cold: 'Zimno', cool: 'Chłodno', warm: 'Ciepło', hot: 'Gorąco',
+      normal: 'W normie', enriched: 'Wzbogacony', slightly_low: 'Nieco niskie', slightly_high: 'Nieco wysokie',
+      quiet: 'Cicho', loud: 'Głośno', very_loud: 'Bardzo głośno'
+    },
+    recommendation: {
+      all_good: 'Wszystko w normie', ventilate_now: 'Wywietrz', run_air_purifier: 'Włącz oczyszczacz',
+      consider_air_purifier: 'Rozważ użycie oczyszczacza', open_window: 'Otwórz okno',
+      air_purifier_ventilate: 'Oczyszczaj i wywietrz', co_danger: 'Alarm CO — Opuść pomieszczenie!',
+      co_warning: 'Ostrzeżenie CO — Wywietrz teraz!', co_elevated: 'Podwyższone stężenie CO — Wywietrz',
+      consider_ventilating: 'Rozważ wietrzenie', keep_windows_closed: 'Nie otwieraj okien',
+      too_dry: 'Zbyt suche powietrze', too_humid: 'Zbyt wilgotne powietrze', ventilate_formaldehyde: 'Wywietrz — Formaldehyd',
+      ventilate_vocs: 'Wywietrz — LZO', reduce_noise: 'Zmniejsz poziom hałasu'
+    },
+    subtitle: {
+      air_quality_healthy: 'Powietrze w normie',
+      co_danger: 'CO {value} ppm — Niebezpieczny poziom CO!', co_danger_unknown: 'Niebezpieczny poziom CO!',
+      co_warning: 'CO {value} ppm — Otwórz okna!', co_warning_unknown: 'Wysoki poziom CO — Otwórz okna!',
+      co_elevated: 'CO {value} ppm — Popraw wentylację!', co_elevated_unknown: 'Podwyższone stężenie CO',
+      purifier_pm25: 'PM2.5 {value} μg/m³ - Przefiltruj powietrze',
+      purifier_pm10: 'PM10 {value} μg/m³ - Przefiltruj powietrze',
+      purifier_generic: 'Podwyższony poziom pyłów zawieszonych',
+      consider_purifier_pm10: 'PM10 {value} μg/m³',
+      open_window_co2: 'CO₂ {value} ppm - Pora otworzyć okna',
+      purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³',
+      ventilate_now_co2: 'CO₂ {value} ppm - Może pogarszać koncentrację',
+      ventilate_formaldehyde: 'HCHO {value} ppb - Potrzebna wentylacja',
+      ventilate_formaldehyde_unknown: 'Podwyższony poziom formaldehydu',
+      ventilate_vocs: 'LZO {value} ppb - Potrzebna wentylacja',
+      ventilate_vocs_unknown: 'Podniesiony poziom LZO',
+      too_dry: 'Wilgotność {value}% - Rozważ nawilżanie',
+      too_humid: 'Wilgotność {value}% - Wywietrz',
+      consider_ventilating_co2: 'CO₂ {value} ppm',
+      consider_ventilating_pm25: 'PM2.5 {value} μg/m³',
+      consider_ventilating_generic: 'Nieznacznie podwyższone poziomy',
+      keep_closed_outdoor_pm25_poor: 'PM2.5 na zew.: {value} μg/m³ - Nie otwieraj okien',
+      keep_closed_outdoor_pm25:'PM2.5 na zew.: {value} μg/m³ — gorzej niż wewnątrz',
+      keep_closed_outdoor_co2:'CO₂ na zew.: {value} ppm — gorzej niż wewnątrz',
+      keep_closed_generic: 'Niska jakość powietrza na zewnątrz',
+      reduce_noise: 'Hałas {value} dB - długotrwały może szkodzić słuchowi', reduce_noise_unknown: 'Podwyższony poziom hałasu'
+    },
+    radon: {
+      advisory_danger: 'Zagrożenie Radonem - Wymagane działanie',
+      advisory_warning: 'Radon powyżej progu działania EPA',
+      advisory_info: 'Radon - monitoruj uważnie',
+      short_term: 'Krótkoterminowy', long_term: 'Długoterminowy'
+    },
+    metric: { humidity: 'Wilgotność', temperature: 'Temperatura', pressure: 'Ciśnienie', noise: 'Hałas' },
+    editor: {
+      name: 'Tytuł karty', co2_entity: 'CO₂', pm25_entity: 'PM2.5',
+      humidity_entity: 'Wilgotność', temperature_entity: 'Temperatura',
+      radon_entity: 'Chwilowy poziom radonu', radon_longterm_entity: 'Średni poziom radonu',
+      co_entity: 'Tlenek węgla (CO)', hcho_entity: 'Formaldehyd (HCHO)',
+      tvoc_entity: 'LZO (tVOC)', pm4_entity: 'PM4', nox_entity: 'NOx',
+      pm1_entity: 'PM1', pm10_entity: 'PM10', pm03_entity: 'PM0.3',
+      pressure_entity: 'Ciśnienie atmosferyczne wew.', noise_entity: 'Czujnik hałasu (dB)',
+      outdoor_co2_entity: 'Zew. CO₂', outdoor_pm25_entity: 'Zew. PM2.5',
+      outdoor_humidity_entity: 'Zew. wilgotność', outdoor_temperature_entity: 'Zew. temperatura',
+      outdoor_co_entity: 'Zew. tlenek węgla (CO)', outdoor_hcho_entity: 'Zew. Formaldehyd (HCHO)',
+      outdoor_tvoc_entity: 'Zew. tVOC', outdoor_pm1_entity: 'Zew. PM1',
+      outdoor_pm10_entity: 'Zew. PM10', outdoor_pm03_entity: 'Zew. PM0.3',
+      outdoor_nox_entity: 'Zew. NOx', outdoor_pressure_entity: 'Ciśnienie atmosferyczne zew.',
+      air_quality_entity: 'Indeks jakości powietrza (opcjonalnie)', hours_to_show: 'Historia pomiarów',
+      temperature_unit: 'Jednostka temperatury', temperature_decimals: 'Temperatura z jednym miejscem po przecinku', radon_unit: 'Jednostka radonu',
+      tvoc_unit: 'Typ pomiaru LZO (tVOC)', nox_unit: 'Typ pomiaru NOx', language: 'Język',
+      recommendation_action: 'Akcja zalecanego działania (przycisk)',
+      compact_alerts: 'Wyświetlaj ostrzeżenia w trybie zwiniętym',
+      auto_expand: 'Automatycznie rozwiń wykresy przy pogorszeniu jakości powietrza',
+      section_additional: 'Dodatkowe sensory', section_outdoor: 'Zewnętrzne sensory',
+      section_advanced: 'Zawansowane', show_min_max: 'Pokazuj min/max na wykresie',
+      order: 'Kolejność sensorów (wybierz w kolejności priorytetu)',
+      display: 'Tryb wyświetlania', tap_action: 'Akcja po kliknięciu',
+      hold_action: 'Akcja po przytrzymaniu', double_tap_action: 'Akcja po dwukrotnym kliknięciu'
+    }
+  },
 };
 
 class AirQualityCard extends HTMLElement {
@@ -180,7 +391,7 @@ class AirQualityCard extends HTMLElement {
     this._config = {};
     this._hass = null;
     this._rendered = false;
-    this._history = { co2: [], pm25: [], pm1: [], pm10: [], pm03: [], pm4: [], hcho: [], tvoc: [], nox: [], co: [], radon: [], radon_longterm: [], humidity: [], temperature: [], pressure: [], outdoor_co2: [], outdoor_pm25: [], outdoor_pm1: [], outdoor_pm10: [], outdoor_pm03: [], outdoor_hcho: [], outdoor_tvoc: [], outdoor_nox: [], outdoor_co: [], outdoor_humidity: [], outdoor_temperature: [], outdoor_pressure: [] };
+    this._history = { co2: [], pm25: [], pm1: [], pm10: [], pm03: [], pm4: [], hcho: [], tvoc: [], nox: [], co: [], o2: [], no2: [], o3: [], c3h8: [], radon: [], radon_longterm: [], humidity: [], temperature: [], pressure: [], noise: [], outdoor_co2: [], outdoor_pm25: [], outdoor_pm1: [], outdoor_pm10: [], outdoor_pm03: [], outdoor_hcho: [], outdoor_tvoc: [], outdoor_nox: [], outdoor_co: [], outdoor_no2: [], outdoor_o3: [], outdoor_humidity: [], outdoor_temperature: [], outdoor_pressure: [] };
     this._historyLoaded = false;
     this._graphData = {};
     this._isDragging = false;
@@ -195,13 +406,15 @@ class AirQualityCard extends HTMLElement {
     const indoorEntityKeys = [
       'co2_entity', 'pm25_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
       'pm4_entity', 'hcho_entity', 'tvoc_entity', 'nox_entity', 'co_entity',
+      'o2_entity', 'no2_entity', 'o3_entity', 'c3h8_entity',
       'radon_entity', 'radon_longterm_entity', 'humidity_entity', 'temperature_entity',
-      'pressure_entity'
+      'pressure_entity', 'noise_entity'
     ];
     const outdoorEntityKeys = [
       'outdoor_co2_entity', 'outdoor_pm25_entity', 'outdoor_pm1_entity',
       'outdoor_pm10_entity', 'outdoor_pm03_entity', 'outdoor_hcho_entity',
       'outdoor_tvoc_entity', 'outdoor_nox_entity', 'outdoor_co_entity',
+      'outdoor_no2_entity', 'outdoor_o3_entity',
       'outdoor_humidity_entity', 'outdoor_temperature_entity', 'outdoor_pressure_entity'
     ];
     const hasIndoor = indoorEntityKeys.some(k => config[k]);
@@ -218,6 +431,7 @@ class AirQualityCard extends HTMLElement {
       temperature_decimals: false,
       radon_unit: 'auto',
       show_min_max: false,
+      y_scale: 'fixed',
       show_status_banner: true,
       display: 'full',
       compact_alerts: true,
@@ -240,6 +454,8 @@ class AirQualityCard extends HTMLElement {
         outdoor_tvoc_entity: 'tvoc_entity',
         outdoor_nox_entity: 'nox_entity',
         outdoor_co_entity: 'co_entity',
+        outdoor_no2_entity: 'no2_entity',
+        outdoor_o3_entity: 'o3_entity',
         outdoor_humidity_entity: 'humidity_entity',
         outdoor_temperature_entity: 'temperature_entity',
         outdoor_pressure_entity: 'pressure_entity'
@@ -407,6 +623,35 @@ class AirQualityCard extends HTMLElement {
     return TRANSLATIONS[code] ? code : 'en';
   }
 
+  // Locale for date/time formatting (#55). Unlike _resolveLanguage this
+  // returns the full BCP 47 tag (e.g. 'pt-BR') and doesn't require a shipped
+  // translation pack — Intl knows far more locales than TRANSLATIONS does.
+  // An explicit `language` config wins so a forced card language also gets
+  // matching date formats; `undefined` lets the browser decide.
+  _dateLocale() {
+    const explicit = this._config.language;
+    if (explicit && explicit !== 'auto') return explicit;
+    return this._hass?.locale?.language || this._hass?.language || undefined;
+  }
+
+  // Graph time labels adapt to the configured window (#53): plain times up
+  // to a day, weekday + hour across a few days, calendar dates beyond that.
+  _formatAxisTime(d) {
+    const hours = Number(this._config.hours_to_show) || 24;
+    const loc = this._dateLocale();
+    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
+    if (hours <= 96) return d.toLocaleString(loc, { weekday: 'short', hour: 'numeric' });
+    return d.toLocaleDateString(loc, { month: 'short', day: 'numeric' });
+  }
+
+  // Hover tooltip time: include the day once the window spans more than one.
+  _formatTooltipTime(d) {
+    const hours = Number(this._config.hours_to_show) || 24;
+    const loc = this._dateLocale();
+    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleString(loc, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
   // Look up a translated string: _t('status', 'good') → 'Bueno' (es).
   // Falls back to English, then to the literal key if neither is found.
   _t(group, key) {
@@ -445,7 +690,7 @@ class AirQualityCard extends HTMLElement {
   // didn't list is appended in the default order so users never lose a
   // configured metric by forgetting to mention it.
   _getMetricOrder() {
-    const all = ['co', 'radon', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'humidity', 'temperature', 'pressure'];
+    const all = ['co', 'c3h8', 'o2', 'radon', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'no2', 'o3', 'noise', 'humidity', 'temperature', 'pressure'];
     if (!Array.isArray(this._config.order) || !this._config.order.length) return all;
     const valid = this._config.order.filter(m => all.includes(m));
     const remaining = all.filter(m => !valid.includes(m));
@@ -477,7 +722,12 @@ class AirQualityCard extends HTMLElement {
     if (this._config.tvoc_entity) size += 1;
     if (this._config.pm4_entity) size += 1;
     if (this._config.nox_entity) size += 1;
+    if (this._config.o2_entity) size += 1;
+    if (this._config.no2_entity) size += 1;
+    if (this._config.o3_entity) size += 1;
+    if (this._config.c3h8_entity) size += 1;
     if (this._config.pressure_entity) size += 1;
+    if (this._config.noise_entity) size += 1;
     if (this._config.humidity_entity) size += 1;
     if (this._config.temperature_entity) size += 1;
     return size;
@@ -559,9 +809,29 @@ class AirQualityCard extends HTMLElement {
         promises.push(this._fetchHistory(this._config.nox_entity, startTime, endTime));
         keys.push('nox');
       }
+      if (this._config.o2_entity) {
+        promises.push(this._fetchHistory(this._config.o2_entity, startTime, endTime));
+        keys.push('o2');
+      }
+      if (this._config.no2_entity) {
+        promises.push(this._fetchHistory(this._config.no2_entity, startTime, endTime));
+        keys.push('no2');
+      }
+      if (this._config.o3_entity) {
+        promises.push(this._fetchHistory(this._config.o3_entity, startTime, endTime));
+        keys.push('o3');
+      }
+      if (this._config.c3h8_entity) {
+        promises.push(this._fetchHistory(this._config.c3h8_entity, startTime, endTime));
+        keys.push('c3h8');
+      }
       if (this._config.pressure_entity) {
         promises.push(this._fetchHistory(this._config.pressure_entity, startTime, endTime));
         keys.push('pressure');
+      }
+      if (this._config.noise_entity) {
+        promises.push(this._fetchHistory(this._config.noise_entity, startTime, endTime));
+        keys.push('noise');
       }
       if (this._config.humidity_entity) {
         promises.push(this._fetchHistory(this._config.humidity_entity, startTime, endTime));
@@ -573,7 +843,7 @@ class AirQualityCard extends HTMLElement {
       }
 
       // Outdoor sensors
-      const outdoorSensors = ['co2', 'pm25', 'pm1', 'pm10', 'pm03', 'hcho', 'tvoc', 'nox', 'co', 'humidity', 'temperature', 'pressure'];
+      const outdoorSensors = ['co2', 'pm25', 'pm1', 'pm10', 'pm03', 'hcho', 'tvoc', 'nox', 'co', 'no2', 'o3', 'humidity', 'temperature', 'pressure'];
       for (const sensor of outdoorSensors) {
         const key = `outdoor_${sensor}_entity`;
         if (this._config[key]) {
@@ -671,8 +941,9 @@ class AirQualityCard extends HTMLElement {
     const overrideKey = {
       co: 'co_thresholds', co2: 'co2_thresholds', pm25: 'pm25_thresholds',
       pm10: 'pm10_thresholds', pm1: 'pm1_thresholds', pm03: 'pm03_thresholds',
-      pm4: 'pm4_thresholds', hcho: 'hcho_thresholds', pressure: 'pressure_thresholds',
+      pm4: 'pm4_thresholds', hcho: 'hcho_thresholds', pressure: 'pressure_thresholds', noise: 'noise_thresholds',
       nox_ppb: 'nox_thresholds', nox_index: 'nox_thresholds',
+      o2: 'o2_thresholds', no2: 'no2_thresholds', o3: 'o3_thresholds', c3h8: 'c3h8_thresholds',
       radon: 'radon_thresholds', humidity: 'humidity_thresholds',
       tvoc_ppb: 'tvoc_thresholds', tvoc_index: 'tvoc_thresholds',
       temp_c: 'temperature_thresholds', temp_f: 'temperature_thresholds'
@@ -696,7 +967,8 @@ class AirQualityCard extends HTMLElement {
   }
 
   _getMetricStatus(metric, value) {
-    return this._tieredValue(value, this._metricThresholds(metric), METRIC_DEFS[metric].labels);
+    const key = this._tieredValue(value, this._metricThresholds(metric), METRIC_DEFS[metric].labelKeys);
+    return this._t('status', key);
   }
 
   _getCO2Color(value)  { return this._getMetricColor('co2', value); }
@@ -705,12 +977,17 @@ class AirQualityCard extends HTMLElement {
   _getPM4Color(value)  { return this._getMetricColor('pm4', value); }
   _getNOxColor(value)  { return this._getMetricColor(this._noxMetric(), value); }
   _getPressureColor(value) { return this._getMetricColor('pressure', value); }
+  _getNoiseColor(value)  { return this._getMetricColor('noise', value); }
   _getHumidityColor(value) { return this._getMetricColor('humidity', value); }
   _getPM1Color(value)  { return this._getMetricColor('pm1', value); }
   _getPM10Color(value) { return this._getMetricColor('pm10', value); }
   _getPM03Color(value) { return this._getMetricColor('pm03', value); }
   _getCOColor(value)   { return this._getMetricColor('co', value); }
   _getRadonColor(bq)   { return this._getMetricColor('radon', bq); }
+  _getO2Color(value)   { return this._getMetricColor('o2', value); }
+  _getNO2Color(value)  { return this._getMetricColor('no2', value); }
+  _getO3Color(value)   { return this._getMetricColor('o3', value); }
+  _getC3H8Color(value) { return this._getMetricColor('c3h8', value); }
 
   _isVOCIndex() {
     if (this._config.tvoc_unit && String(this._config.tvoc_unit).toLowerCase() !== 'auto') {
@@ -863,10 +1140,26 @@ class AirQualityCard extends HTMLElement {
     const radonShort = this._config.radon_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_entity)) : 0;
     const radonLong = this._config.radon_longterm_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_longterm_entity)) : 0;
     const radon = Math.max(radonShort, radonLong);
+    const c3h8 = this._config.c3h8_entity ? this._getNumericState(this._config.c3h8_entity) : 0;
+    // O2's "unconfigured" fallback must be null, not 0 — 0% O2 is the worst
+    // possible reading, so a 0 default would make an unconfigured sensor
+    // look like a life-threatening emergency.
+    const o2 = this._config.o2_entity ? this._getNumericState(this._config.o2_entity) : null;
 
     // If air_quality_entity is configured, use it
     if (this._config.air_quality_entity) {
       const quality = this._getState(this._config.air_quality_entity);
+      // Numeric index sensors (e.g. Netatmo's health index, #45): with
+      // `air_quality_thresholds` configured, interpret the number through
+      // the usual 5-tier machinery instead of parroting the raw value.
+      const aqThresholds = this._config.air_quality_thresholds;
+      const numeric = parseFloat(quality);
+      if (Array.isArray(aqThresholds) && aqThresholds.length === 4 &&
+          aqThresholds.every(n => typeof n === 'number') && Number.isFinite(numeric)) {
+        const key = this._tieredValue(numeric, aqThresholds, ['excellent', 'good', 'fair', 'poor', 'very_poor']);
+        const color = this._tieredValue(numeric, aqThresholds, ['#4caf50', '#8bc34a', '#ffc107', '#ff9800', '#f44336']);
+        return { status: this._t('status', key), color };
+      }
       const statusKey = String(quality || '').toLowerCase().replace(/\s+/g, '_');
       const translated = this._t('status', statusKey);
       // If translation found, use it; otherwise show the raw entity state cleaned up
@@ -877,6 +1170,14 @@ class AirQualityCard extends HTMLElement {
     // CO is a life-safety metric — always takes priority
     if (co > 35) return { status: this._t('status', 'dangerous'), color: '#d32f2f' };
     if (co > 9) return { status: this._t('status', 'poor'), color: '#f44336' };
+
+    // Propane is a combustible-gas leak hazard — life-safety like CO
+    if (c3h8 >= 0.42) return { status: this._t('status', 'dangerous'), color: '#d32f2f' };
+    if (c3h8 >= 0.21) return { status: this._t('status', 'poor'), color: '#f44336' };
+
+    // Low O2 is an asphyxiation hazard — life-safety like CO
+    if (o2 !== null && o2 < 16) return { status: this._t('status', 'dangerous'), color: '#d32f2f' };
+    if (o2 !== null && o2 < 19.5) return { status: this._t('status', 'poor'), color: '#f44336' };
 
     // Radon — only degrades status at EPA action level and above
     if (radon >= 300) return { status: this._t('status', 'poor'), color: '#f44336' };
@@ -914,11 +1215,12 @@ class AirQualityCard extends HTMLElement {
     const SEVERITY = { '#f44336': 4, '#ff9800': 3, '#ffc107': 2, '#2196f3': 1 };
     // Life-safety metrics must never be outranked — or truncated out of the
     // chip row — by a comfort metric that happens to share a tier color.
-    const PRIORITY_BOOST = { co: 10, radon: 5 };
+    const PRIORITY_BOOST = { co: 10, c3h8: 10, o2: 10, radon: 5 };
     const labels = {
       co: 'CO', radon: 'Radon', co2: 'CO₂', pm25: 'PM2.5', pm10: 'PM10',
       pm1: 'PM1', pm03: 'PM0.3', pm4: 'PM4', hcho: 'HCHO', tvoc: 'tVOC',
-      nox: 'NOx', humidity: this._t('metric', 'humidity'),
+      nox: 'NOx', no2: 'NO₂', o3: 'O₃', o2: 'O₂', c3h8: 'Propane',
+      noise: this._t('metric', 'noise'), humidity: this._t('metric', 'humidity'),
       temperature: this._t('metric', 'temperature'), pressure: this._t('metric', 'pressure')
     };
     const results = [];
@@ -974,7 +1276,14 @@ class AirQualityCard extends HTMLElement {
     const pm10 = this._config.pm10_entity ? this._getNumericState(this._config.pm10_entity) : 0;
     const hcho = this._config.hcho_entity ? this._getNumericState(this._config.hcho_entity) : 0;
     const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : 0;
+    const no2 = this._config.no2_entity ? this._getNumericState(this._config.no2_entity) : 0;
+    const o3 = this._config.o3_entity ? this._getNumericState(this._config.o3_entity) : 0;
+    const c3h8 = this._config.c3h8_entity ? this._getNumericState(this._config.c3h8_entity) : 0;
+    // Unlike other gases, O2's "unconfigured" fallback must be null, not 0 —
+    // 0% O2 is the worst possible reading (see _getOverallStatus).
+    const o2 = this._config.o2_entity ? this._getNumericState(this._config.o2_entity) : null;
     const humidity = this._config.humidity_entity ? this._getNumericState(this._config.humidity_entity) : 45;
+    const noise = this._config.noise_entity ? this._getNumericState(this._config.noise_entity) : 0;
 
     // Outdoor-worse detection drives the "keep windows closed" override.
     // When an indoor counterpart exists, compare the two (don't ventilate if
@@ -996,11 +1305,21 @@ class AirQualityCard extends HTMLElement {
     if (co > 100) return 'co_danger';
     if (co > 35) return 'co_warning';
 
+    // Propane leak — explosive hazard, life-safety like CO
+    if (c3h8 >= 0.42) return 'propane_danger';
+    if (c3h8 >= 0.21) return 'propane_warning';
+
+    // Low O2 — asphyxiation hazard, life-safety like CO
+    if (o2 !== null && o2 < 16) return 'o2_danger';
+    if (o2 !== null && o2 < 19.5) return 'o2_warning';
+
     let key = 'all_good';
     if (co2 > 1500) key = 'ventilate_now';
     else if (pm25 > 35) key = 'run_air_purifier';
     else if (pm10 > 150) key = 'run_air_purifier';
     else if (hcho > 100) key = 'ventilate_formaldehyde';
+    else if (no2 > 200) key = 'ventilate_no2';
+    else if (o3 > 240) key = 'ventilate_o3';
     else if (tvoc > 500) key = 'ventilate_vocs';
     else if (pm25 > 25 && co2 > 1000) key = 'air_purifier_ventilate';
     else if (pm25 > 25) key = 'run_air_purifier';
@@ -1009,10 +1328,11 @@ class AirQualityCard extends HTMLElement {
     else if (co > 9) key = 'co_elevated';
     else if (humidity < 30) key = 'too_dry';
     else if (humidity > 60) key = 'too_humid';
+    else if (noise > 70) key = 'reduce_noise';
     else if (co2 > 800 || pm25 > 15) key = 'consider_ventilating';
 
-    // CO recommendations are intentionally excluded — CO is always life-safety
-    const ventilationKeys = ['ventilate_now', 'open_window', 'consider_ventilating', 'air_purifier_ventilate', 'ventilate_formaldehyde', 'ventilate_vocs', 'co_elevated'];
+    // CO/propane/O2 recommendations are intentionally excluded — they're always life-safety
+    const ventilationKeys = ['ventilate_now', 'open_window', 'consider_ventilating', 'air_purifier_ventilate', 'ventilate_formaldehyde', 'ventilate_vocs', 'ventilate_no2', 'ventilate_o3', 'co_elevated'];
     if (outdoorIsWorse && ventilationKeys.includes(key)) {
       if (pm25 > 25) return 'run_air_purifier';
       return 'keep_windows_closed';
@@ -1041,10 +1361,17 @@ class AirQualityCard extends HTMLElement {
       ventilate_now: 'mdi:alert-circle',
       ventilate_formaldehyde: 'mdi:alert-circle',
       ventilate_vocs: 'mdi:alert-circle',
+      ventilate_no2: 'mdi:alert-circle',
+      ventilate_o3: 'mdi:alert-circle',
       co_danger: 'mdi:alert-octagon',
       co_warning: 'mdi:alert-octagon',
       co_elevated: 'mdi:alert',
+      propane_danger: 'mdi:propane-tank',
+      propane_warning: 'mdi:propane-tank',
+      o2_danger: 'mdi:lungs',
+      o2_warning: 'mdi:lungs',
       keep_windows_closed: 'mdi:window-closed-variant',
+      reduce_noise: 'mdi:volume-high',
       too_dry: 'mdi:water-percent',
       too_humid: 'mdi:water'
     };
@@ -1201,9 +1528,14 @@ class AirQualityCard extends HTMLElement {
     const showTVOC = !!this._config.tvoc_entity;
     const showPM4 = !!this._config.pm4_entity;
     const showNOx = !!this._config.nox_entity;
+    const showO2 = !!this._config.o2_entity;
+    const showNO2 = !!this._config.no2_entity;
+    const showO3 = !!this._config.o3_entity;
+    const showC3H8 = !!this._config.c3h8_entity;
     const showHumidity = !!this._config.humidity_entity;
     const showTemp = !!this._config.temperature_entity;
     const showPressure = !!this._config.pressure_entity;
+    const showNoise = !!this._config.noise_entity;
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -1215,6 +1547,12 @@ class AirQualityCard extends HTMLElement {
           --aq-very-poor: #f44336;
           --aq-critical: #d32f2f;
         }
+
+        /* An expanded expandable card can be taller than the slot some
+           layouts (e.g. a sections view with fixed rows) reserved for it.
+           Later sibling cards would otherwise paint over the overflow (#43),
+           so lift the expanded card above them — a pop-over, not a reflow. */
+        ${this._isExpandable() ? ':host { position: relative; z-index: 8; }' : ''}
 
         .card {
           background: var(--ha-card-background, var(--card-background-color, #fff));
@@ -1834,10 +2172,115 @@ class AirQualityCard extends HTMLElement {
             </div>
             ` : ''}
 
+            ${showC3H8 ? `
+            <div class="graph-container" id="c3h8-graph-container" data-entity="${this._config.c3h8_entity}">
+              <div class="graph-header">
+                <span class="graph-label">Propane / C₃H₈</span>
+                <span class="graph-value" id="c3h8-value">-- <span class="unit">%</span><span class="status" id="c3h8-status"></span></span>
+              </div>
+              <div class="graph-wrapper">
+                <div class="graph" id="c3h8-graph">
+                  <svg id="c3h8-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="c3h8-cursor"></div>
+                <div class="graph-tooltip" id="c3h8-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="c3h8-time-axis"></div>
+            </div>
+            ` : ''}
+
+            ${showO2 ? `
+            <div class="graph-container" id="o2-graph-container" data-entity="${this._config.o2_entity}">
+              <div class="graph-header">
+                <span class="graph-label">O₂</span>
+                <span class="graph-value" id="o2-value">-- <span class="unit">%</span><span class="status" id="o2-status"></span></span>
+              </div>
+              <div class="graph-wrapper">
+                <div class="graph" id="o2-graph">
+                  <svg id="o2-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="o2-cursor"></div>
+                <div class="graph-tooltip" id="o2-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="o2-time-axis"></div>
+            </div>
+            ` : ''}
+
+            ${showNO2 ? `
+            <div class="graph-container" id="no2-graph-container" data-entity="${this._config.no2_entity}">
+              <div class="graph-header">
+                <span class="graph-label">NO₂</span>
+                <span class="graph-value" id="no2-value">-- <span class="unit">µg/m³</span><span class="status" id="no2-status"></span></span>
+              </div>
+              <div class="graph-wrapper">
+                <div class="graph" id="no2-graph">
+                  <svg id="no2-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="no2-cursor"></div>
+                <div class="graph-tooltip" id="no2-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="no2-time-axis"></div>
+            </div>
+            ` : ''}
+
+            ${showO3 ? `
+            <div class="graph-container" id="o3-graph-container" data-entity="${this._config.o3_entity}">
+              <div class="graph-header">
+                <span class="graph-label">O₃</span>
+                <span class="graph-value" id="o3-value">-- <span class="unit">µg/m³</span><span class="status" id="o3-status"></span></span>
+              </div>
+              <div class="graph-wrapper">
+                <div class="graph" id="o3-graph">
+                  <svg id="o3-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="o3-cursor"></div>
+                <div class="graph-tooltip" id="o3-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="o3-time-axis"></div>
+            </div>
+            ` : ''}
+
+            ${showNoise ? `
+            <div class="graph-container" id="noise-graph-container" data-entity="${this._config.noise_entity}">
+              <div class="graph-header">
+                <span class="graph-label">${this._t('metric', 'noise')}</span>
+                <span class="graph-value" id="noise-value">-- <span class="unit">dB</span><span class="status" id="noise-status"></span></span>
+              </div>
+              <div class="graph-wrapper">
+                <div class="graph" id="noise-graph">
+                  <svg id="noise-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="noise-cursor"></div>
+                <div class="graph-tooltip" id="noise-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  <div class="graph-tooltip-outdoor"></div>
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="noise-time-axis"></div>
+            </div>
+            ` : ''}
+
             ${showHumidity ? `
             <div class="graph-container" id="humidity-graph-container" data-entity="${this._config.humidity_entity}">
               <div class="graph-header">
-                <span class="graph-label">Humidity</span>
+                <span class="graph-label">${this._t('metric', 'humidity')}</span>
                 <span class="graph-value" id="humidity-value">-- <span class="unit">%</span><span class="status" id="humidity-status"></span></span>
               </div>
               <div class="graph-wrapper">
@@ -1858,7 +2301,7 @@ class AirQualityCard extends HTMLElement {
             ${showTemp ? `
             <div class="graph-container" id="temperature-graph-container" data-entity="${this._config.temperature_entity}">
               <div class="graph-header">
-                <span class="graph-label">Temperature</span>
+                <span class="graph-label">${this._t('metric', 'temperature')}</span>
                 <span class="graph-value" id="temperature-value">-- <span class="unit">${this._getTempUnit()}</span><span class="status" id="temperature-status"></span></span>
               </div>
               <div class="graph-wrapper">
@@ -1879,7 +2322,7 @@ class AirQualityCard extends HTMLElement {
             ${showPressure ? `
             <div class="graph-container" id="pressure-graph-container" data-entity="${this._config.pressure_entity}">
               <div class="graph-header">
-                <span class="graph-label">Pressure</span>
+                <span class="graph-label">${this._t('metric', 'pressure')}</span>
                 <span class="graph-value" id="pressure-value">-- <span class="unit">hPa</span><span class="status" id="pressure-status"></span></span>
               </div>
               <div class="graph-wrapper">
@@ -1947,9 +2390,14 @@ class AirQualityCard extends HTMLElement {
     const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : null;
     const pm4 = this._config.pm4_entity ? this._getNumericState(this._config.pm4_entity) : null;
     const nox = this._config.nox_entity ? this._getNumericState(this._config.nox_entity) : null;
+    const o2 = this._config.o2_entity ? this._getNumericState(this._config.o2_entity) : null;
+    const no2 = this._config.no2_entity ? this._getNumericState(this._config.no2_entity) : null;
+    const o3 = this._config.o3_entity ? this._getNumericState(this._config.o3_entity) : null;
+    const c3h8 = this._config.c3h8_entity ? this._getNumericState(this._config.c3h8_entity) : null;
     const humidity = this._config.humidity_entity ? this._getNumericState(this._config.humidity_entity) : null;
     const temp = this._config.temperature_entity ? this._getNumericState(this._config.temperature_entity) : null;
     const pressure = this._config.pressure_entity ? this._getNumericState(this._config.pressure_entity) : null;
+    const noise = this._config.noise_entity ? this._getNumericState(this._config.noise_entity) : null;
     const recKey = this._getRecommendationKey();
     const recommendation = this._t('recommendation', recKey);
     const overall = this._getOverallStatus();
@@ -1998,6 +2446,14 @@ class AirQualityCard extends HTMLElement {
         subtitle = co !== null ? this._ts('subtitle', 'co_warning', { value: co.toFixed(0) }) : this._t('subtitle', 'co_warning_unknown');
       } else if (recKey === 'co_elevated') {
         subtitle = co !== null ? this._ts('subtitle', 'co_elevated', { value: co.toFixed(0) }) : this._t('subtitle', 'co_elevated_unknown');
+      } else if (recKey === 'propane_danger') {
+        subtitle = c3h8 !== null ? this._ts('subtitle', 'propane_danger', { value: c3h8.toFixed(2) }) : this._t('subtitle', 'propane_danger_unknown');
+      } else if (recKey === 'propane_warning') {
+        subtitle = c3h8 !== null ? this._ts('subtitle', 'propane_warning', { value: c3h8.toFixed(2) }) : this._t('subtitle', 'propane_warning_unknown');
+      } else if (recKey === 'o2_danger') {
+        subtitle = o2 !== null ? this._ts('subtitle', 'o2_danger', { value: o2.toFixed(1) }) : this._t('subtitle', 'o2_danger_unknown');
+      } else if (recKey === 'o2_warning') {
+        subtitle = o2 !== null ? this._ts('subtitle', 'o2_warning', { value: o2.toFixed(1) }) : this._t('subtitle', 'o2_warning_unknown');
       } else if (recKey === 'all_good') {
         subtitle = this._t('subtitle', 'air_quality_healthy');
       } else if (recKey === 'run_air_purifier') {
@@ -2019,10 +2475,16 @@ class AirQualityCard extends HTMLElement {
       } else if (recKey === 'ventilate_vocs') {
         const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : null;
         subtitle = tvoc !== null ? this._ts('subtitle', 'ventilate_vocs', { value: tvoc.toFixed(0) }) : this._t('subtitle', 'ventilate_vocs_unknown');
+      } else if (recKey === 'ventilate_no2') {
+        subtitle = no2 !== null ? this._ts('subtitle', 'ventilate_no2', { value: Math.round(no2) }) : this._t('subtitle', 'ventilate_no2_unknown');
+      } else if (recKey === 'ventilate_o3') {
+        subtitle = o3 !== null ? this._ts('subtitle', 'ventilate_o3', { value: Math.round(o3) }) : this._t('subtitle', 'ventilate_o3_unknown');
       } else if (recKey === 'too_dry' && humidity !== null) {
         subtitle = this._ts('subtitle', 'too_dry', { value: Math.round(humidity) });
       } else if (recKey === 'too_humid' && humidity !== null) {
         subtitle = this._ts('subtitle', 'too_humid', { value: Math.round(humidity) });
+      } else if (recKey === 'reduce_noise') {
+        subtitle = noise !== null ? this._ts('subtitle', 'reduce_noise', { value: Math.round(noise) }) : this._t('subtitle', 'reduce_noise_unknown');
       } else if (recKey === 'consider_ventilating') {
         if (co2 !== null && co2 > 800) subtitle = this._ts('subtitle', 'consider_ventilating_co2', { value: Math.round(co2) });
         else if (pm25 !== null && pm25 > 15) subtitle = this._ts('subtitle', 'consider_ventilating_pm25', { value: pm25.toFixed(0) });
@@ -2279,6 +2741,62 @@ class AirQualityCard extends HTMLElement {
       }
     }
 
+    // Update Propane (C3H8)
+    if (c3h8 !== null) {
+      const c3h8Color = this._getC3H8Color(c3h8);
+      const c3h8ValueEl = this.shadowRoot.getElementById('c3h8-value');
+      if (c3h8ValueEl) {
+        c3h8ValueEl.innerHTML = `${c3h8.toFixed(2)} <span class="unit">%</span><span class="status" id="c3h8-status"></span>`;
+        const statusEl = c3h8ValueEl.querySelector('.status');
+        statusEl.textContent = this._getMetricStatus('c3h8', c3h8);
+        statusEl.style.background = c3h8Color + '22';
+        statusEl.style.color = c3h8Color;
+        c3h8ValueEl.style.color = c3h8Color;
+      }
+    }
+
+    // Update O2
+    if (o2 !== null) {
+      const o2Color = this._getO2Color(o2);
+      const o2ValueEl = this.shadowRoot.getElementById('o2-value');
+      if (o2ValueEl) {
+        o2ValueEl.innerHTML = `${o2.toFixed(1)} <span class="unit">%</span><span class="status" id="o2-status"></span>`;
+        const statusEl = o2ValueEl.querySelector('.status');
+        statusEl.textContent = this._getMetricStatus('o2', o2);
+        statusEl.style.background = o2Color + '22';
+        statusEl.style.color = o2Color;
+        o2ValueEl.style.color = o2Color;
+      }
+    }
+
+    // Update NO2
+    if (no2 !== null) {
+      const no2Color = this._getNO2Color(no2);
+      const no2ValueEl = this.shadowRoot.getElementById('no2-value');
+      if (no2ValueEl) {
+        no2ValueEl.innerHTML = `${Math.round(no2)} <span class="unit">µg/m³</span><span class="status" id="no2-status"></span>${outdoorSuffix('outdoor_no2_entity', no2, 'µg/m³')}`;
+        const statusEl = no2ValueEl.querySelector('.status');
+        statusEl.textContent = this._getMetricStatus('no2', no2);
+        statusEl.style.background = no2Color + '22';
+        statusEl.style.color = no2Color;
+        no2ValueEl.style.color = no2Color;
+      }
+    }
+
+    // Update O3
+    if (o3 !== null) {
+      const o3Color = this._getO3Color(o3);
+      const o3ValueEl = this.shadowRoot.getElementById('o3-value');
+      if (o3ValueEl) {
+        o3ValueEl.innerHTML = `${Math.round(o3)} <span class="unit">µg/m³</span><span class="status" id="o3-status"></span>${outdoorSuffix('outdoor_o3_entity', o3, 'µg/m³')}`;
+        const statusEl = o3ValueEl.querySelector('.status');
+        statusEl.textContent = this._getMetricStatus('o3', o3);
+        statusEl.style.background = o3Color + '22';
+        statusEl.style.color = o3Color;
+        o3ValueEl.style.color = o3Color;
+      }
+    }
+
     // Update Humidity
     if (humidity !== null) {
       const humidityColor = this._getHumidityColor(humidity);
@@ -2320,6 +2838,20 @@ class AirQualityCard extends HTMLElement {
         statusEl.style.background = pressureColor + '22';
         statusEl.style.color = pressureColor;
         pressureValueEl.style.color = pressureColor;
+      }
+    }
+
+    // Update Noise
+    if (noise !== null) {
+      const noiseColor = this._getNoiseColor(noise);
+      const noiseValueEl = this.shadowRoot.getElementById('noise-value');
+      if (noiseValueEl) {
+        noiseValueEl.innerHTML = `${Math.round(noise)} <span class="unit">dB</span><span class="status" id="noise-status"></span>`;
+        const statusEl = noiseValueEl.querySelector('.status');
+        statusEl.textContent = this._getMetricStatus('noise', noise);
+        statusEl.style.background = noiseColor + '22';
+        statusEl.style.color = noiseColor;
+        noiseValueEl.style.color = noiseColor;
       }
     }
   }
@@ -2374,6 +2906,20 @@ class AirQualityCard extends HTMLElement {
       const noxMax = this._isNOxIndex() ? 500 : 300;
       this._renderGraph('nox', this._history.nox, this._getNOxColor.bind(this), 0, noxMax, this._getNOxUnit(), this._history.outdoor_nox);
     }
+    if (this._config.c3h8_entity && this._history.c3h8.length) {
+      // '%vol' (not '%') so _formatGraphValue's optional min/max marker
+      // doesn't round propane's sub-1% readings down to 0 (#see METRIC_DEFS).
+      this._renderGraph('c3h8', this._history.c3h8, this._getC3H8Color.bind(this), 0, 2.5, '%vol');
+    }
+    if (this._config.o2_entity && this._history.o2.length) {
+      this._renderGraph('o2', this._history.o2, this._getO2Color.bind(this), 15, 25, '%');
+    }
+    if (this._config.no2_entity && this._history.no2.length) {
+      this._renderGraph('no2', this._history.no2, this._getNO2Color.bind(this), 0, 300, 'µg/m³', this._history.outdoor_no2);
+    }
+    if (this._config.o3_entity && this._history.o3.length) {
+      this._renderGraph('o3', this._history.o3, this._getO3Color.bind(this), 0, 300, 'µg/m³', this._history.outdoor_o3);
+    }
     if (this._config.humidity_entity && this._history.humidity.length) {
       this._renderGraph('humidity', this._history.humidity, this._getHumidityColor.bind(this), 0, 100, '%', this._history.outdoor_humidity);
     }
@@ -2382,6 +2928,9 @@ class AirQualityCard extends HTMLElement {
       const tempMin = this._isCelsius() ? 10 : 50;
       const tempMax = this._isCelsius() ? 32 : 90;
       this._renderGraph('temperature', this._history.temperature, this._getTempColor.bind(this), tempMin, tempMax, tempUnit, this._history.outdoor_temperature);
+    }
+    if (this._config.noise_entity && this._history.noise.length) {
+      this._renderGraph('noise', this._history.noise, this._getNoiseColor.bind(this), 20, 90, 'dB');
     }
     if (this._config.pressure_entity && this._history.pressure.length) {
       this._renderGraph('pressure', this._history.pressure, this._getPressureColor.bind(this), 980, 1045, this._getPressureUnit(), this._history.outdoor_pressure);
@@ -2404,8 +2953,24 @@ class AirQualityCard extends HTMLElement {
     if (outdoorData && outdoorData.length) {
       allValues.push(...outdoorData.map(d => d.value));
     }
-    const dataMin = Math.min(...allValues, minVal);
-    const dataMax = Math.max(...allValues, maxVal);
+    // Fixed scale (default) anchors every graph to the metric's meaningful
+    // range so tier colors stay comparable across cards. `y_scale: auto`
+    // (#52) instead zooms to the data with 10% headroom, making small
+    // variations visible when readings sit far from the tier boundaries.
+    let dataMin, dataMax;
+    if (this._config.y_scale === 'auto') {
+      dataMin = Math.min(...allValues);
+      dataMax = Math.max(...allValues);
+      const pad = (dataMax - dataMin) * 0.1 || Math.abs(dataMax) * 0.05 || 1;
+      dataMin -= pad;
+      dataMax += pad;
+      // Don't zoom below zero for metrics whose fixed floor is zero —
+      // a negative axis on a concentration graph reads as bad data.
+      if (minVal >= 0 && dataMin < 0) dataMin = 0;
+    } else {
+      dataMin = Math.min(...allValues, minVal);
+      dataMax = Math.max(...allValues, maxVal);
+    }
     const range = dataMax - dataMin || 1;
 
     const points = data.map(d => {
@@ -2518,7 +3083,7 @@ class AirQualityCard extends HTMLElement {
       const endTime = new Date(win.end);
       const midTime = new Date((win.start + win.end) / 2);
 
-      const formatTime = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const formatTime = (d) => this._formatAxisTime(d);
       timeAxis.innerHTML = `
         <span>${formatTime(startTime)}</span>
         <span>${formatTime(midTime)}</span>
@@ -2528,7 +3093,7 @@ class AirQualityCard extends HTMLElement {
   }
 
   _setupGraphInteractions() {
-    const graphIds = ['co', 'radon', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'humidity', 'temperature', 'pressure'].filter(id => {
+    const graphIds = ['co', 'radon', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'c3h8', 'o2', 'no2', 'o3', 'noise', 'humidity', 'temperature', 'pressure'].filter(id => {
       if (id === 'radon') return this._config.radon_entity || this._config.radon_longterm_entity;
       return this._config[`${id}_entity`];
     });
@@ -2666,7 +3231,7 @@ class AirQualityCard extends HTMLElement {
 
     if (timeEl && closest.time) {
       const time = new Date(closest.time);
-      timeEl.textContent = time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      timeEl.textContent = this._formatTooltipTime(time);
     }
 
     let tooltipX = pct * 100;
@@ -2752,6 +3317,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
       // English fallback for fields added after the translation pack was written.
       const localFallbacks = {
         show_min_max: 'Show min/max for each metric',
+        y_scale: 'Graph Y-axis scale',
         show_status_banner: 'Show status banner',
         order: 'Sensor Order (list of metric names)',
         display: 'Display Mode',
@@ -2770,15 +3336,15 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
         {
           type: 'grid',
           schema: [
-            { name: 'co2_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_dioxide' }] } } },
-            { name: 'pm25_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm25' }] } } },
+            { name: 'co2_entity', selector: { entity: { domain: 'sensor' } } },
+            { name: 'pm25_entity', selector: { entity: { domain: 'sensor' } } },
           ]
         },
         {
           type: 'grid',
           schema: [
-            { name: 'humidity_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'humidity' }] } } },
-            { name: 'temperature_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'temperature' }] } } },
+            { name: 'humidity_entity', selector: { entity: { domain: 'sensor' } } },
+            { name: 'temperature_entity', selector: { entity: { domain: 'sensor' } } },
           ]
         },
         {
@@ -2796,7 +3362,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             {
               type: 'grid',
               schema: [
-                { name: 'co_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_monoxide' }] } } },
+                { name: 'co_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'hcho_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
@@ -2811,20 +3377,35 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
               type: 'grid',
               schema: [
                 { name: 'nox_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'pm1_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm1' }] } } },
+                { name: 'pm1_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'pm10_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm10' }] } } },
+                { name: 'pm10_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'pm03_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'pressure_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'atmospheric_pressure' }, { domain: 'sensor', device_class: 'pressure' }] } } },
+                { name: 'c3h8_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'o2_entity', selector: { entity: { domain: 'sensor' } } },
+              ]
+            },
+            {
+              type: 'grid',
+              schema: [
+                { name: 'no2_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'o3_entity', selector: { entity: { domain: 'sensor' } } },
+              ]
+            },
+            {
+              type: 'grid',
+              schema: [
+                { name: 'pressure_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'noise_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
           ]
@@ -2837,21 +3418,21 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_co2_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_dioxide' }] } } },
-                { name: 'outdoor_pm25_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm25' }] } } },
+                { name: 'outdoor_co2_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_pm25_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_humidity_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'humidity' }] } } },
-                { name: 'outdoor_temperature_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'temperature' }] } } },
+                { name: 'outdoor_humidity_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_temperature_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_co_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'carbon_monoxide' }] } } },
+                { name: 'outdoor_co_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'outdoor_hcho_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
@@ -2859,13 +3440,13 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
               type: 'grid',
               schema: [
                 { name: 'outdoor_tvoc_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_pm1_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm1' }] } } },
+                { name: 'outdoor_pm1_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
             {
               type: 'grid',
               schema: [
-                { name: 'outdoor_pm10_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'pm10' }] } } },
+                { name: 'outdoor_pm10_entity', selector: { entity: { domain: 'sensor' } } },
                 { name: 'outdoor_pm03_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
@@ -2873,7 +3454,14 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
               type: 'grid',
               schema: [
                 { name: 'outdoor_nox_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_pressure_entity', selector: { entity: { filter: [{ domain: 'sensor', device_class: 'atmospheric_pressure' }, { domain: 'sensor', device_class: 'pressure' }] } } },
+                { name: 'outdoor_no2_entity', selector: { entity: { domain: 'sensor' } } },
+              ]
+            },
+            {
+              type: 'grid',
+              schema: [
+                { name: 'outdoor_o3_entity', selector: { entity: { domain: 'sensor' } } },
+                { name: 'outdoor_pressure_entity', selector: { entity: { domain: 'sensor' } } },
               ]
             },
           ]
@@ -2886,6 +3474,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
             { name: 'hours_to_show', selector: { number: { min: 1, max: 168, mode: 'box', unit_of_measurement: 'hours' } } },
             { name: 'show_min_max', selector: { boolean: {} } },
+            { name: 'y_scale', selector: { select: { options: [{ value: 'fixed', label: 'Fixed (full metric range)' }, { value: 'auto', label: 'Auto (zoom to data)' }], mode: 'dropdown' } } },
             { name: 'show_status_banner', selector: { boolean: {} } },
             { name: 'order', selector: { select: { multiple: true, mode: 'list', options: [
               { value: 'co', label: 'CO' },
@@ -2899,8 +3488,13 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
               { value: 'hcho', label: 'HCHO' },
               { value: 'tvoc', label: 'tVOC' },
               { value: 'nox', label: 'NOx' },
+              { value: 'no2', label: 'NO₂' },
+              { value: 'o3', label: 'O₃' },
+              { value: 'o2', label: 'O₂' },
+              { value: 'c3h8', label: 'Propane' },
               { value: 'humidity', label: 'Humidity' },
               { value: 'temperature', label: 'Temperature' },
+              { value: 'noise', label: 'Noise' },
               { value: 'pressure', label: 'Pressure' }
             ] } } },
             { name: 'display', selector: { select: { options: [{ value: 'full', label: 'Full (graphs and details)' }, { value: 'compact', label: 'Compact (status badge only)' }, { value: 'expandable', label: 'Expandable (compact, tap to expand)' }], mode: 'dropdown' } } },
@@ -2910,7 +3504,7 @@ if (LitElement && !customElements.get('air-quality-card-editor')) {
             { name: 'hold_action', selector: { ui_action: {} } },
             { name: 'double_tap_action', selector: { ui_action: {} } },
             { name: 'recommendation_action', selector: { ui_action: {} } },
-            { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }], mode: 'dropdown' } } },
+            { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }, { value: 'hu', label: 'Magyar' }, { value: 'pl', label: 'Polski' }], mode: 'dropdown' } } },
             { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
             { name: 'temperature_decimals', selector: { boolean: {} } },
             { name: 'radon_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor)' }, { value: 'pCi/L', label: 'pCi/L (US)' }, { value: 'Bq/m³', label: 'Bq/m³ (International)' }], mode: 'dropdown' } } },

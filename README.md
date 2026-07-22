@@ -21,8 +21,8 @@ A custom Home Assistant Lovelace card for monitoring indoor air quality with bea
 
 ## Features
 
-- **Real-time monitoring** of CO, Radon, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, humidity, temperature, and atmospheric pressure
-- **CO safety alerts** -- critical red warnings for dangerous carbon monoxide levels
+- **Real-time monitoring** of CO, Radon, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, NOx, O2, NO2, O3, Propane, humidity, temperature, atmospheric pressure, and noise
+- **CO, Propane, and low-O2 safety alerts** -- critical red warnings for dangerous carbon monoxide, gas leak, or oxygen-deficient levels
 - **Radon advisory banner** -- separate long-term health advisory with EPA/WHO thresholds (supports pCi/L and Bq/m3)
 - **Gradient-colored graphs** that change color based on air quality levels
 - **Interactive hover/touch** to see historical values at any point
@@ -56,7 +56,7 @@ Or manually: open HACS, search for "Air Quality Card", click Install, and refres
 2. Search for "Air Quality Card"
 3. Configure the entities using the visual editor
 4. Primary sensors (CO₂, PM2.5, Humidity, Temperature) are always visible
-5. Expand "Additional Sensors" for Radon, CO, HCHO, tVOC, PM1, PM10, PM0.3
+5. Expand "Additional Sensors" for Radon, CO, HCHO, tVOC, PM1, PM10, PM0.3, O2, NO2, O3, Propane, Pressure, Noise
 6. Expand "Outdoor Sensors" for comparison data
 
 ### YAML Configuration
@@ -96,9 +96,14 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `tvoc_entity` | string | No* | - | Volatile organic compounds (tVOC) sensor entity ID (absolute ppb or Sensirion VOC Index — auto-detected, see `tvoc_unit`) |
 | `nox_entity` | string | No* | - | NOx sensor entity ID (absolute ppb or Sensirion NOx Index — auto-detected, see `nox_unit`) |
 | `pm4_entity` | string | No* | - | PM4 sensor entity ID |
+| `o2_entity` | string | No* | - | Oxygen (O2) sensor entity ID (%vol) |
+| `no2_entity` | string | No* | - | Nitrogen Dioxide (NO2) sensor entity ID (µg/m³) |
+| `o3_entity` | string | No* | - | Ozone (O3) sensor entity ID (µg/m³) |
+| `c3h8_entity` | string | No* | - | Propane (C3H8) sensor entity ID (%vol — combustible-gas leak detection, e.g. air-Q's optional propane sensor) |
 | `humidity_entity` | string | No* | - | Humidity sensor entity ID |
 | `temperature_entity` | string | No* | - | Temperature sensor entity ID |
 | `pressure_entity` | string | No* | - | Atmospheric pressure sensor entity ID (e.g. Airthings) |
+| `noise_entity` | string | No* | - | Noise / sound level sensor entity ID (dB) |
 | `air_quality_entity` | string | No | - | Overall air quality index entity ([passthrough — see below](#air-quality-index-entity)) |
 | `hours_to_show` | number | No | 24 | Hours of history to display (1-168) |
 | `temperature_unit` | string | No | "auto" | Temperature unit: "auto" (detect from HA), "F" (Fahrenheit), or "C" (Celsius) |
@@ -107,6 +112,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `tvoc_unit` | string | No | "auto" | tVOC measurement type: "auto" (detect from sensor), "ppb" (absolute), or "index" (Sensirion VOC Index) |
 | `nox_unit` | string | No | "auto" | NOx measurement type: "auto" (detect from sensor), "ppb" (absolute), or "index" (Sensirion NOx Index) |
 | `show_min_max` | boolean | No | `false` | Overlay the min/max values of the displayed time window directly at the data points on the graph |
+| `y_scale` | string | No | "fixed" | "fixed" anchors each graph to the metric's full meaningful range; "auto" zooms the Y-axis to the data (with 10% headroom) so small variations are visible |
 | `show_status_banner` | boolean | No | `true` | Show or hide the recommendation banner (the "All Good / Ventilate Now / …" strip at the top of the card) |
 | `order` | array | No | default | Custom display order for metrics (see [Sensor Order](#sensor-order)) |
 | `display` | string | No | "full" | "full" (graphs and details), "compact" (status badge only), or "expandable" (compact, tap to expand to full) |
@@ -126,12 +132,18 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `hcho_thresholds` | array | No | `[20, 50, 100, 200]` | Custom HCHO thresholds (ppb) |
 | `tvoc_thresholds` | array | No | mode-dependent | Custom tVOC thresholds (units depend on `tvoc_unit`) |
 | `nox_thresholds` | array | No | mode-dependent | Custom NOx thresholds (units depend on `nox_unit`; defaults `[20, 53, 100, 360]` ppb / `[5, 20, 150, 300]` index) |
+| `o2_thresholds` | array | No | `[16, 19.5, 23.5, 25]` | Custom O2 thresholds (%vol) |
+| `no2_thresholds` | array | No | `[10, 25, 40, 200]` | Custom NO2 thresholds (µg/m³) |
+| `o3_thresholds` | array | No | `[60, 100, 180, 240]` | Custom O3 thresholds (µg/m³) |
+| `c3h8_thresholds` | array | No | `[0.05, 0.21, 0.42, 1.05]` | Custom Propane thresholds (%vol) |
 | `radon_thresholds` | array | No | `[48, 100, 148, 300]` | Custom radon thresholds (Bq/m³ — even if you display in pCi/L) |
 | `humidity_thresholds` | array | No | `[30, 40, 50, 60]` | Custom humidity thresholds (%) |
 | `pressure_thresholds` | array | No | `[990, 1005, 1025, 1040]` | Custom atmospheric pressure thresholds (hPa by default; override for inHg/mmHg) |
+| `noise_thresholds` | array | No | `[35, 45, 55, 70]` | Custom noise thresholds (dB) |
+| `air_quality_thresholds` | array | No | - | Interpret a numeric `air_quality_entity` through 5 tiers (Excellent/Good/Fair/Poor/Very Poor) instead of showing the raw number ([see below](#air-quality-index-entity)) |
 | `outdoor_pressure_entity` | string | No | - | Outdoor atmospheric pressure sensor for comparison |
 | `temperature_thresholds` | array | No | unit-dependent | Custom temperature thresholds (in the unit your sensor reports) |
-| `language` | string | No | "auto" | UI language. "auto" (use Home Assistant's), "en", "es", "fr", "de", or "pt" |
+| `language` | string | No | "auto" | UI language. "auto" (use Home Assistant's), "en", "es", "fr", "de", "pt", "hu", or "pl" |
 | `outdoor_co2_entity` | string | No | - | Outdoor CO2 sensor for comparison |
 | `outdoor_pm25_entity` | string | No | - | Outdoor PM2.5 sensor for comparison |
 | `outdoor_pm1_entity` | string | No | - | Outdoor PM1 sensor for comparison |
@@ -141,6 +153,8 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `outdoor_hcho_entity` | string | No | - | Outdoor HCHO sensor for comparison |
 | `outdoor_tvoc_entity` | string | No | - | Outdoor tVOC sensor for comparison |
 | `outdoor_nox_entity` | string | No | - | Outdoor NOx sensor for comparison |
+| `outdoor_no2_entity` | string | No | - | Outdoor NO2 sensor for comparison |
+| `outdoor_o3_entity` | string | No | - | Outdoor O3 sensor for comparison |
 | `outdoor_humidity_entity` | string | No | - | Outdoor humidity sensor for comparison |
 | `outdoor_temperature_entity` | string | No | - | Outdoor temperature sensor for comparison |
 
@@ -150,13 +164,21 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 
 The optional `air_quality_entity` is a **passthrough**: whatever value the entity reports is shown directly on the status badge (lowercased and mapped to a color based on standard HA AQI states — `good` / `moderate` / `fair` / `poor` / `very_poor` / `extremely_poor`). The card doesn't interpret it as indoor or outdoor — use whichever entity fits your dashboard.
 
+If your index entity reports a **number** instead of a status word (e.g. Netatmo's Healthy Home Coach health index, where 0 = healthy and 4 = unhealthy), add `air_quality_thresholds` — four ascending boundaries mapping the number onto Excellent / Good / Fair / Poor / Very Poor:
+
+```yaml
+type: custom:air-quality-card
+air_quality_entity: sensor.healthy_home_coach_air_quality
+air_quality_thresholds: [1, 2, 3, 4]  # Netatmo health index: 0=Excellent … 4=Very Poor
+```
+
 If you leave it unset, the card computes the status itself from your configured CO / CO₂ / PM2.5 / radon sensors (CO and radon are prioritized as life-safety/health concerns).
 
 ### Sensor Order
 
 Customize which sensors come first on the card. In the visual editor, use the multi-select to tick metrics in the order you want them shown. In YAML, provide a list of metric names. Any metric you don't list keeps its default position and stays visible.
 
-Valid metric names: `co`, `radon`, `co2`, `pm25`, `pm10`, `pm1`, `pm03`, `pm4`, `hcho`, `tvoc`, `nox`, `humidity`, `temperature`, `pressure`.
+Valid metric names: `co`, `c3h8`, `o2`, `radon`, `co2`, `pm25`, `pm10`, `pm1`, `pm03`, `pm4`, `hcho`, `tvoc`, `nox`, `no2`, `o3`, `noise`, `humidity`, `temperature`, `pressure`.
 
 ```yaml
 type: custom:air-quality-card
@@ -226,6 +248,8 @@ display: expandable
 
 In expandable mode the tap gesture is reserved for expand/collapse, so `tap_action` is ignored.
 
+If your layout gives the card a fixed height (e.g. a sections view where the card was resized, which sets `grid_options: rows:`), the expanded card pops over the cards below it instead of pushing them down. For the push-down behavior in a sections view, set the card's grid options to size automatically (`grid_options: rows: auto`).
+
 Add `auto_expand: true` to let the card manage itself: it expands automatically while any sensor reads out of range and collapses once readings have stayed normal for 5 minutes (the delay prevents flapping when a sensor hovers at a threshold). A manual tap takes over (the card stops auto-toggling until it is re-created, e.g. a page reload or dashboard edit), so the automation never fights you.
 
 ```yaml
@@ -257,9 +281,9 @@ Notes:
 
 ### Language
 
-The card auto-detects your Home Assistant frontend language and translates the status badge, recommendations, recommendation subtitles, radon advisory titles, and editor labels. Translations included so far: **English, Spanish, French, German, Portuguese** (Spanish/French/German contributed by [@b0rv3g4r4](https://github.com/b0rv3g4r4) on PR #11, Portuguese by [@mzspicoli](https://github.com/mzspicoli) on PR #33).
+The card auto-detects your Home Assistant frontend language and translates the status badge, recommendations, recommendation subtitles, radon advisory titles, and editor labels. Translations included so far: **English, Spanish, French, German, Portuguese, Hungarian, Polish** (Spanish/French/German contributed by [@b0rv3g4r4](https://github.com/b0rv3g4r4) on PR #11, Portuguese by [@mzspicoli](https://github.com/mzspicoli) on PR #33, Hungarian by [@fema3832](https://github.com/fema3832) on PR #42, Polish by [@diijkstra](https://github.com/diijkstra) on PR #54).
 
-If auto-detection picks the wrong language, force one explicitly with `language: es` (or `en` / `fr` / `de` / `pt`).
+If auto-detection picks the wrong language, force one explicitly with `language: es` (or `en` / `fr` / `de` / `pt` / `hu` / `pl`).
 
 To contribute a new language: open a PR adding a block to the `TRANSLATIONS` const in `air-quality-card.js`. Copy the `en:` block, rename the key (e.g. `it:` for Italian), and translate the values — keep the structure identical. English is the fallback for any missing key.
 
@@ -290,9 +314,9 @@ outdoor_temperature_entity: sensor.outdoor_temperature
 
 ## Built-in Recommendations
 
-The card automatically generates actionable recommendations based on your sensor readings -- no template sensors needed. It evaluates CO, CO2, PM2.5, PM10, HCHO, tVOC, and humidity levels, and when outdoor sensors are configured, it avoids suggesting ventilation when outdoor air is worse.
+The card automatically generates actionable recommendations based on your sensor readings -- no template sensors needed. It evaluates CO, Propane, O2, CO2, PM2.5, PM10, HCHO, NO2, O3, tVOC, and humidity levels, and when outdoor sensors are configured, it avoids suggesting ventilation when outdoor air is worse.
 
-**CO safety alerts** are always shown regardless of outdoor conditions -- carbon monoxide is a life-safety concern. If CO exceeds dangerous levels, the card shows a critical red warning with instructions to leave the area.
+**CO, Propane, and low-O2 safety alerts** are always shown regardless of outdoor conditions -- carbon monoxide, a propane gas leak, and oxygen deficiency are all life-safety concerns. If any of them exceed dangerous levels, the card shows a critical red warning with instructions to leave the area.
 
 **Radon advisory banner** appears as a separate element below the main recommendation when radon levels are elevated. Unlike other pollutants, radon changes over days/weeks and requires professional mitigation (not "open a window"), so it uses its own advisory system instead of the main recommendation waterfall. The advisory shows at three levels: informational (approaching action level), warning (above EPA action level of 4.0 pCi/L / 148 Bq/m3), and danger (significantly elevated, mitigation needed).
 
@@ -415,6 +439,56 @@ Absolute (ppb) — anchored to WHO 2021 / EPA NO₂ standards (applied to NOx co
 | Elevated | 100-360 ppb | Orange | EPA AQI Unhealthy-for-Sensitive-Groups range |
 | Poor | > 360 ppb | Red | EPA AQI Unhealthy and above |
 
+### NO2 (Nitrogen Dioxide)
+Assumes µg/m³ (this card's default gas unit). Anchored to WHO 2021 Air Quality Guidelines (annual/24h) and the EU Ambient Air Quality Directive (annual/hourly limits). If your sensor reports ppb, override `no2_thresholds` (1 ppb ≈ 1.88 µg/m³):
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Excellent | < 10 µg/m³ | Green | WHO 2021 annual guideline |
+| Good | 10-25 µg/m³ | Light Green | Under WHO 2021 24-hour guideline |
+| Moderate | 25-40 µg/m³ | Yellow | Under EU AQD annual limit |
+| Elevated | 40-200 µg/m³ | Orange | Under EU AQD hourly limit |
+| Poor | > 200 µg/m³ | Red | Exceeds EU AQD hourly limit — ventilation needed |
+
+### O3 (Ozone)
+Assumes µg/m³. Anchored to WHO 2021 Air Quality Guidelines (peak-season/8h) and the EU Ambient Air Quality Directive (information/alert thresholds). If your sensor reports ppb, override `o3_thresholds` (1 ppb ≈ 2.00 µg/m³):
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Excellent | < 60 µg/m³ | Green | WHO 2021 peak-season guideline |
+| Good | 60-100 µg/m³ | Light Green | Under WHO 2021 8-hour guideline |
+| Moderate | 100-180 µg/m³ | Yellow | Elevated |
+| Elevated | 180-240 µg/m³ | Orange | EU AQD information threshold |
+| Poor | > 240 µg/m³ | Red | EU AQD alert threshold — ventilation needed |
+
+### O2 (Oxygen)
+There's no WHO/EPA ambient-O2 guideline, so this borrows OSHA's confined-space oxygen safety bands — a bell around the 20.9% ambient baseline, but safety-colored (red tails, not amber) since both oxygen-deficient and oxygen-enriched atmospheres are genuine hazards. Below 16% is treated as life-safety, same tier as CO (see below):
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Dangerous | < 16% | Red | OSHA dangerous impairment level — leave the area |
+| Low | 16-19.5% | Orange | Below OSHA's oxygen-deficient threshold |
+| Normal | 19.5-23.5% | Green | Typical ambient range |
+| Enriched | 23.5-25% | Orange | Above OSHA's oxygen-enriched (fire risk) threshold |
+| Dangerous | > 25% | Red | Significant fire hazard |
+
+### Propane (C3H8)
+Not a WHO/EPA air-quality pollutant — it's a combustible-gas leak/explosion hazard, so it's treated as **life-safety like CO** rather than a ventilation-waterfall metric. Assumes raw %vol (not pre-scaled to %LEL). Propane's lower explosive limit (LEL) is 2.1%vol; bands anchor to 10%/20%/50% of that, the standard combustible-gas-detector alarm points (NFPA 715 / UL 2075 convention):
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Safe | < 0.05% | Green | Background levels |
+| Low | 0.05-0.21% | Light Green | Acceptable |
+| Moderate | 0.21-0.42% | Yellow | Gas Leak Warning — ventilate now |
+| High | 0.42-1.05% | Orange | Gas Leak Danger — evacuate |
+| Dangerous | > 1.05% | Red | Gas Leak Danger — evacuate immediately |
+
+### Noise
+Anchored to WHO community noise guidance — 35 dB is the indoor living-area guideline, 55 dB the serious-annoyance level, and sustained exposure above 70 dB risks hearing damage. Above 70 dB the card recommends reducing the noise level:
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Quiet | < 35 dB | Green | WHO indoor living-area guideline |
+| Moderate | 35-45 dB | Light Green | Typical occupied-home background |
+| Elevated | 45-55 dB | Yellow | Noticeable, may disturb concentration/sleep |
+| Loud | 55-70 dB | Orange | WHO serious-annoyance level |
+| Very Loud | > 70 dB | Red | Prolonged exposure may harm hearing |
+
 ### Humidity
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
@@ -436,7 +510,7 @@ Informational, not a health hazard — a wide green band keeps typical weather c
 
 ## Supported Devices
 
-This card works with any sensor that provides entities for CO, Radon, CO2, PM2.5, PM10, PM4, PM1, PM0.3, HCHO, tVOC, NOx, humidity, temperature, or atmospheric pressure. Use any combination -- even a single sensor works. Tested with:
+This card works with any sensor that provides entities for CO, Radon, CO2, PM2.5, PM10, PM4, PM1, PM0.3, HCHO, tVOC, NOx, O2, NO2, O3, Propane, humidity, temperature, atmospheric pressure, or noise. Use any combination -- even a single sensor works. Tested with:
 
 - IKEA VINDSTYRKA / ALPSTUGA (via Matter)
 - Aqara TVOC Air Quality Monitor
@@ -445,6 +519,7 @@ This card works with any sensor that provides entities for CO, Radon, CO2, PM2.5
 - AirGradient ONE / Open Air
 - PurpleAir sensors
 - Airthings Wave / Wave Plus (radon, CO2, tVOC, humidity, temperature)
+- air-Q Science (CO2, PM, HCHO, tVOC, NOx, O2, NO2, O3, and the optional Propane sensor)
 - Any ESPHome-based air quality sensor
 
 ## Development

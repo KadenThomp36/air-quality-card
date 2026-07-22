@@ -794,7 +794,7 @@ defaultOrderCard.setConfig({ co2_entity: 'sensor.co2' });
 const defaultOrder = defaultOrderCard._getMetricOrder();
 assert(defaultOrder[0] === 'co', 'default order: co first');
 assert(defaultOrder[defaultOrder.length - 1] === 'pressure', 'default order: pressure last');
-assert(defaultOrder.length === 14, 'default order: all 14 metrics');
+assert(defaultOrder.length === 19, 'default order: all 19 metrics');
 
 section('Metric order — user override');
 
@@ -811,7 +811,7 @@ assert(reordered[3] === 'pm10', 'user order: pm10 fourth');
 assert(reordered[4] === 'pm25', 'user order: pm25 fifth');
 // Unmentioned metrics get appended in default order — user never loses a sensor
 assert(reordered.includes('radon'), 'unmentioned metrics still present');
-assert(reordered.length === 14, 'user order: total still 14');
+assert(reordered.length === 19, 'user order: total still 19');
 
 section('Metric order — invalid input');
 
@@ -1152,6 +1152,264 @@ histNox._loadHistory();
 assert(histCalls.some(u => u.includes('sensor.nox')), '_loadHistory fetches the indoor NOx entity');
 assert(histCalls.some(u => u.includes('sensor.out_nox')), '_loadHistory fetches the outdoor NOx entity');
 
+// ============================================================
+// O2, NO2, O3, PROPANE (air-Q Science support)
+// ============================================================
+
+section('O2 Color (bell, OSHA-based)');
+assert(card._getO2Color(10) === '#f44336', 'O2 10% = red (dangerous, <16%)');
+assert(card._getO2Color(18) === '#ff9800', 'O2 18% = orange (low, 16-19.5%)');
+assert(card._getO2Color(21) === '#4caf50', 'O2 21% = green (normal, 19.5-23.5%)');
+assert(card._getO2Color(24) === '#ff9800', 'O2 24% = orange (enriched, 23.5-25%)');
+assert(card._getO2Color(27) === '#f44336', 'O2 27% = red (dangerous, >=25%)');
+assert(card._getMetricStatus('o2', 10) === 'Dangerous', 'O2 10% status = Dangerous');
+assert(card._getMetricStatus('o2', 21) === 'Normal', 'O2 21% status = Normal');
+
+section('NO2 Color (WHO 2021 + EU AQD anchors)');
+assert(card._getNO2Color(5) === '#4caf50', 'NO2 5 µg/m³ = green');
+assert(card._getNO2Color(15) === '#8bc34a', 'NO2 15 µg/m³ = light green');
+assert(card._getNO2Color(30) === '#ffc107', 'NO2 30 µg/m³ = yellow');
+assert(card._getNO2Color(100) === '#ff9800', 'NO2 100 µg/m³ = orange');
+assert(card._getNO2Color(250) === '#f44336', 'NO2 250 µg/m³ = red');
+
+section('O3 Color (WHO 2021 + EU AQD anchors)');
+assert(card._getO3Color(30) === '#4caf50', 'O3 30 µg/m³ = green');
+assert(card._getO3Color(80) === '#8bc34a', 'O3 80 µg/m³ = light green');
+assert(card._getO3Color(150) === '#ffc107', 'O3 150 µg/m³ = yellow');
+assert(card._getO3Color(200) === '#ff9800', 'O3 200 µg/m³ = orange');
+assert(card._getO3Color(300) === '#f44336', 'O3 300 µg/m³ = red');
+
+section('Propane (C3H8) Color (%vol, LEL-anchored safety bands)');
+assert(card._getC3H8Color(0.01) === '#4caf50', 'Propane 0.01% = green (safe)');
+assert(card._getC3H8Color(0.1) === '#8bc34a', 'Propane 0.1% = light green (low)');
+assert(card._getC3H8Color(0.3) === '#ffc107', 'Propane 0.3% = yellow (moderate)');
+assert(card._getC3H8Color(0.6) === '#ff9800', 'Propane 0.6% = orange (high)');
+assert(card._getC3H8Color(1.5) === '#f44336', 'Propane 1.5% = red (dangerous)');
+assert(card._getMetricStatus('c3h8', 0.01) === 'Safe', 'Propane 0.01% status = Safe');
+assert(card._getMetricStatus('c3h8', 1.5) === 'Dangerous', 'Propane 1.5% status = Dangerous');
+
+section('Recommendation — Propane/O2 Safety (life-safety like CO)');
+setStates({ c3h8: 0.5 });
+assert(card._getRecommendation() === 'Gas Leak Danger — Evacuate', 'Propane 0.5% (>=0.42) = Gas Leak Danger');
+
+setStates({ c3h8: 0.3 });
+assert(card._getRecommendation() === 'Gas Leak Warning — Ventilate Now', 'Propane 0.3% (>=0.21) = Gas Leak Warning');
+
+setStates({ c3h8: 0.05 });
+assert(card._getRecommendation() === 'All Good', 'Propane 0.05% (below warning) = All Good');
+
+setStates({ o2: 14 });
+assert(card._getRecommendation() === 'Low Oxygen Danger — Leave Area', 'O2 14% (<16) = Low Oxygen Danger');
+
+setStates({ o2: 18 });
+assert(card._getRecommendation() === 'Low Oxygen Warning — Ventilate Now', 'O2 18% (<19.5) = Low Oxygen Warning');
+
+setStates({ o2: 21 });
+assert(card._getRecommendation() === 'All Good', 'O2 21% (normal) = All Good');
+
+// CO still wins over propane/O2 (documented top life-safety priority)
+setStates({ co: 150, c3h8: 0.5, o2: 10 });
+assert(card._getRecommendation() === 'CO Danger — Leave Area', 'CO still takes priority over propane/O2 danger');
+
+// Propane/O2 danger take priority over the CO2/PM2.5 waterfall and radon
+setStates({ c3h8: 0.5, co2: 2000, pm25: 50 });
+assert(card._getRecommendation() === 'Gas Leak Danger — Evacuate', 'Propane danger overrides CO2/PM2.5 waterfall');
+
+// Not suppressed by outdoor override (mirrors CO's exclusion from ventilationKeys)
+setStates({ c3h8: 0.5 });
+card._config.outdoor_co2_entity = 'sensor.outdoor_co2';
+card._config.outdoor_pm25_entity = 'sensor.outdoor_pm25';
+card._hass.states['sensor.outdoor_co2'] = { state: '5000' };
+card._hass.states['sensor.outdoor_pm25'] = { state: '100' };
+assert(card._getRecommendation() === 'Gas Leak Danger — Evacuate', 'Propane danger not suppressed by outdoor override');
+
+setStates({ o2: 14 });
+card._config.outdoor_co2_entity = 'sensor.outdoor_co2';
+card._hass.states['sensor.outdoor_co2'] = { state: '5000' };
+assert(card._getRecommendation() === 'Low Oxygen Danger — Leave Area', 'O2 danger not suppressed by outdoor override');
+
+section('O2 unconfigured does not trigger a false life-safety alarm (regression guard)');
+// Unlike other gases, O2's unconfigured fallback must be null, not 0 — 0% O2
+// is the worst possible reading, so a naive `: 0` default would make an
+// unconfigured sensor look like a life-threatening emergency.
+setStates({ co2: 400 });
+assert(card._getRecommendation() === 'All Good', 'no o2_entity configured → no false O2 alarm in recommendation');
+assert(card._getOverallStatus().status === 'Excellent', 'no o2_entity configured → no false O2 alarm in overall status');
+
+section('Recommendation — NO2/O3 waterfall + outdoor override');
+setStates({ no2: 250 });
+assert(card._getRecommendation() === 'Ventilate — NO₂ Elevated', 'NO2 250 µg/m³ (>200) = Ventilate NO2');
+
+setStates({ o3: 250 });
+assert(card._getRecommendation() === 'Ventilate — O₃ Elevated', 'O3 250 µg/m³ (>240) = Ventilate O3');
+
+// HCHO still outranks NO2/O3 in the waterfall (checked first)
+setStates({ hcho: 150, no2: 250 });
+assert(card._getRecommendation() === 'Ventilate — Formaldehyde', 'HCHO outranks NO2 in the waterfall');
+
+// Suppressed/redirected by the existing outdoor CO2/PM2.5-worse override, same as HCHO/tVOC
+setStates({ no2: 250, co2: 1100 });
+card._config.outdoor_co2_entity = 'sensor.outdoor_co2';
+card._hass.states['sensor.outdoor_co2'] = { state: '1200' };
+assert(card._getRecommendation() === 'Keep Windows Closed', 'ventilate_no2 suppressed when outdoor CO2 is worse');
+
+section('Outdoor NO2/O3 mirror');
+
+const outNo2 = new CardClass();
+outNo2.setConfig({ outdoor_no2_entity: 'sensor.out_no2' });
+assert(outNo2._outdoorOnly === true, 'outdoor NO2 only → outdoor-only mode');
+assert(outNo2._config.no2_entity === 'sensor.out_no2', 'outdoor NO2 promoted to primary slot');
+
+const pairNo2 = new CardClass();
+pairNo2.setConfig({ no2_entity: 'sensor.no2', outdoor_no2_entity: 'sensor.out_no2' });
+assert(pairNo2._outdoorOnly === false, 'indoor+outdoor NO2 → normal mode');
+assert(pairNo2._config.outdoor_no2_entity === 'sensor.out_no2', 'outdoor NO2 kept as overlay');
+
+const outO3 = new CardClass();
+outO3.setConfig({ outdoor_o3_entity: 'sensor.out_o3' });
+assert(outO3._outdoorOnly === true, 'outdoor O3 only → outdoor-only mode');
+assert(outO3._config.o3_entity === 'sensor.out_o3', 'outdoor O3 promoted to primary slot');
+
+const histGases = new CardClass();
+histGases.setConfig({
+  no2_entity: 'sensor.no2', outdoor_no2_entity: 'sensor.out_no2',
+  o3_entity: 'sensor.o3', outdoor_o3_entity: 'sensor.out_o3'
+});
+const gasHistCalls = [];
+histGases._hass = {
+  config: { unit_system: { temperature: '°F' } },
+  states: {
+    'sensor.no2': { state: '10' }, 'sensor.out_no2': { state: '20' },
+    'sensor.o3': { state: '40' }, 'sensor.out_o3': { state: '60' }
+  },
+  callApi: async (method, uri) => { gasHistCalls.push(uri); return [[{ last_changed: '2026-06-11T00:00:00Z', state: '5' }]]; }
+};
+histGases._renderGraphs = () => {};
+histGases._loadHistory();
+assert(gasHistCalls.some(u => u.includes('sensor.no2')), '_loadHistory fetches the indoor NO2 entity');
+assert(gasHistCalls.some(u => u.includes('sensor.out_no2')), '_loadHistory fetches the outdoor NO2 entity');
+assert(gasHistCalls.some(u => u.includes('sensor.o3')), '_loadHistory fetches the indoor O3 entity');
+assert(gasHistCalls.some(u => u.includes('sensor.out_o3')), '_loadHistory fetches the outdoor O3 entity');
+
+section('Alert chip priority — O2/Propane life-safety boost');
+const safetyChipCard = new CardClass();
+safetyChipCard.setConfig({ o2_entity: 'sensor.o2', c3h8_entity: 'sensor.c3h8', co2_entity: 'sensor.co2' });
+safetyChipCard._hass = { config: { unit_system: { temperature: '°F' } }, states: {
+  'sensor.o2': { state: '18' },   // orange (Low) tier
+  'sensor.c3h8': { state: '0.3' }, // yellow (Moderate) tier
+  'sensor.co2': { state: '2000' }  // red (Poor) tier, no boost
+} };
+const safetyChips = safetyChipCard._getAbnormalMetrics();
+assert(safetyChips.length === 3, 'O2 + Propane + CO2 all flagged');
+assert(safetyChips[0].metric === 'o2', 'life-safety O2 sorts first even at a lower tier color than CO2');
+assert(safetyChips[1].metric === 'c3h8', 'life-safety Propane sorts ahead of CO2 too');
+
+section('Noise sensor (#50)');
+
+assert(card._getNoiseColor(30) === '#4caf50', 'Noise 30 dB = green (quiet)');
+assert(card._getNoiseColor(40) === '#8bc34a', 'Noise 40 dB = light green (moderate)');
+assert(card._getNoiseColor(50) === '#ffc107', 'Noise 50 dB = yellow (elevated)');
+assert(card._getNoiseColor(60) === '#ff9800', 'Noise 60 dB = orange (loud)');
+assert(card._getNoiseColor(80) === '#f44336', 'Noise 80 dB = red (very loud)');
+assert(card._getMetricStatus('noise', 30) === 'Quiet', 'Noise 30 dB status = Quiet');
+assert(card._getMetricStatus('noise', 80) === 'Very Loud', 'Noise 80 dB status = Very Loud');
+
+const noiseCard = new CardClass();
+noiseCard.setConfig({ noise_entity: 'sensor.noise' });
+noiseCard._hass = { config: { unit_system: { temperature: '°C' } }, states: { 'sensor.noise': { state: '75' } } };
+assert(noiseCard._getRecommendation() === 'Reduce Noise Level', 'Noise 75 dB (>70) = Reduce Noise Level');
+noiseCard._hass.states['sensor.noise'].state = '45';
+assert(noiseCard._getRecommendation() === 'All Good', 'Noise 45 dB = All Good');
+
+// Noise never blocks life-safety or air-quality recs (it sits low in the waterfall)
+const noiseCo2 = new CardClass();
+noiseCo2.setConfig({ noise_entity: 'sensor.noise', co2_entity: 'sensor.co2' });
+noiseCo2._hass = { config: { unit_system: { temperature: '°C' } }, states: { 'sensor.noise': { state: '80' }, 'sensor.co2': { state: '2000' } } };
+assert(noiseCo2._getRecommendation() === 'Ventilate Now', 'CO2 outranks noise in the waterfall');
+
+// Localized noise status + chip label
+const noiseEs = new CardClass();
+noiseEs.setConfig({ noise_entity: 'sensor.noise', language: 'es' });
+noiseEs._hass = { config: { unit_system: { temperature: '°C' } }, states: { 'sensor.noise': { state: '80' } } };
+assert(noiseEs._getMetricStatus('noise', 80) === 'Muy ruidoso', 'es noise 80 dB → Muy ruidoso');
+const noiseChips = noiseEs._getAbnormalMetrics();
+assert(noiseChips.length === 1 && noiseChips[0].metric === 'noise', 'loud noise raises an alert chip');
+assert(noiseChips[0].label === 'Ruido', 'noise chip label localizes');
+
+// Custom thresholds
+const noiseTh = new CardClass();
+noiseTh.setConfig({ noise_entity: 'sensor.noise', noise_thresholds: [20, 30, 40, 50] });
+assert(noiseTh._getNoiseColor(45) === '#ff9800', 'custom noise thresholds apply');
+
+section('Numeric air quality index interpretation (#45)');
+
+function aqiCard(state, thresholds) {
+  const c = new CardClass();
+  const cfg = { co2_entity: 'sensor.co2', air_quality_entity: 'sensor.aqi' };
+  if (thresholds) cfg.air_quality_thresholds = thresholds;
+  c.setConfig(cfg);
+  c._hass = { config: { unit_system: { temperature: '°C' } }, states: { 'sensor.aqi': { state } } };
+  return c;
+}
+
+// Netatmo-style health index 0-4 with air_quality_thresholds: [1,2,3,4]
+assert(aqiCard('0', [1, 2, 3, 4])._getOverallStatus().status === 'Excellent', 'AQI 0 → Excellent');
+assert(aqiCard('2', [1, 2, 3, 4])._getOverallStatus().status === 'Fair', 'AQI 2 → Fair');
+assert(aqiCard('2', [1, 2, 3, 4])._getOverallStatus().color === '#ffc107', 'AQI 2 → yellow');
+assert(aqiCard('4', [1, 2, 3, 4])._getOverallStatus().status === 'Very Poor', 'AQI 4 → Very Poor');
+assert(aqiCard('4', [1, 2, 3, 4])._getOverallStatus().color === '#f44336', 'AQI 4 → red');
+
+// Word states still pass through even when thresholds are configured
+assert(aqiCard('good', [1, 2, 3, 4])._getOverallStatus().status === 'Good', 'word state ignores thresholds');
+
+// Without thresholds a numeric state stays a raw passthrough (pre-#45 behavior)
+assert(aqiCard('2')._getOverallStatus().status === '2', 'no thresholds → raw numeric passthrough');
+
+// Malformed thresholds fall back to passthrough instead of throwing
+assert(aqiCard('2', [1, 2, 3])._getOverallStatus().status === '2', 'wrong-length thresholds ignored');
+
+section('Y-axis scale (#52)');
+
+const yCard = new CardClass();
+yCard.setConfig({ humidity_entity: 'sensor.h' });
+yCard._timeWindow = { start: 0, end: 3600000 };
+const ySvg = { innerHTML: '' };
+yCard.shadowRoot = { getElementById: (id) => id === 'humidity-svg' ? ySvg : null };
+const yData = [ { time: 600000, value: 50 }, { time: 1800000, value: 52 }, { time: 3000000, value: 51 } ];
+const ySpread = pts => Math.max(...pts) - Math.min(...pts);
+
+yCard._renderGraph('humidity', yData, () => '#4caf50', 0, 100, '%');
+const yFixed = ySpread(yCard._graphData.humidity.points.map(p => p.y));
+yCard._config.y_scale = 'auto';
+yCard._renderGraph('humidity', yData, () => '#4caf50', 0, 100, '%');
+const yAuto = ySpread(yCard._graphData.humidity.points.map(p => p.y));
+assert(yFixed < 2, 'fixed scale: a 2% humidity wiggle is nearly flat on the 0-100 axis');
+assert(yAuto > yFixed * 5, 'auto scale zooms to the data and amplifies small variations');
+assert(yCard._config.y_scale === 'auto' && ySvg.innerHTML.includes('graph-line'), 'auto scale still renders the line SVG');
+
+section('Adaptive, localized graph time labels (#53, #55)');
+
+const timeCard = new CardClass();
+timeCard.setConfig({ co2_entity: 'sensor.co2', language: 'en', hours_to_show: 12 });
+const sampleTime = new Date('2026-07-18T14:30:00'); // a Saturday
+assert(/2:30/.test(timeCard._formatAxisTime(sampleTime)), '≤24h axis label is a plain time');
+timeCard._config.hours_to_show = 72;
+assert(/Sat/.test(timeCard._formatAxisTime(sampleTime)), 'multi-day axis label shows the weekday');
+timeCard._config.hours_to_show = 168;
+const weekLabel = timeCard._formatAxisTime(sampleTime);
+assert(/Jul/.test(weekLabel) && /18/.test(weekLabel), 'week-long axis label shows the date');
+const tooltipLabel = timeCard._formatTooltipTime(sampleTime);
+assert(/Jul/.test(tooltipLabel) && /2:30/.test(tooltipLabel), 'multi-day tooltip includes date and time');
+timeCard._config.hours_to_show = 12;
+assert(!/Jul/.test(timeCard._formatTooltipTime(sampleTime)), 'single-day tooltip stays a plain time');
+timeCard._config.language = 'de';
+timeCard._config.hours_to_show = 72;
+assert(/Sa/.test(timeCard._formatAxisTime(sampleTime)), 'axis label follows forced card language');
+assert(timeCard._dateLocale() === 'de', 'explicit language wins for the date locale');
+timeCard._config.language = 'auto';
+timeCard._hass = { locale: { language: 'fr-FR' }, config: { unit_system: { temperature: '°C' } }, states: {} };
+assert(timeCard._dateLocale() === 'fr-FR', 'auto date locale uses the full hass locale tag');
+
 section('Compact mode — tap actions');
 
 // _fireAction is a no-op when the corresponding action isn't configured
@@ -1366,6 +1624,42 @@ assert(recCardWithLang('en', 2000)._getRecommendation() === 'Ventilate Now', 'en
 assert(recCardWithLang('es', 2000)._getRecommendation() === 'Ventila ahora', 'es rec text: Ventila ahora');
 assert(recCardWithLang('de', 2000)._getRecommendation() === 'Jetzt lüften', 'de rec text: Jetzt lüften');
 
+section('Per-metric status reflects language');
+
+function metricCardWithLang(lang) {
+  const c = new CardClass();
+  c.setConfig({ co2_entity: 'sensor.co2', pm25_entity: 'sensor.pm25', humidity_entity: 'sensor.h', temperature_entity: 'sensor.t', temperature_unit: 'C', language: lang });
+  c._hass = { config: { unit_system: { temperature: '°C' } }, states: {} };
+  return c;
+}
+
+// The bug: per-metric badge labels (`Poor`, `Elevated`, …) ignored the
+// configured language because METRIC_DEFS held English strings directly.
+// Verify each locale resolves them through the `status` translation group.
+assert(metricCardWithLang('en')._getMetricStatus('co2', 2000) === 'Poor', 'en CO2 2000 → Poor');
+assert(metricCardWithLang('pt')._getMetricStatus('co2', 2000) === 'Ruim', 'pt CO2 2000 → Ruim');
+assert(metricCardWithLang('es')._getMetricStatus('co2', 2000) === 'Malo', 'es CO2 2000 → Malo');
+assert(metricCardWithLang('de')._getMetricStatus('pm25', 50) === 'Schlecht', 'de PM2.5 50 → Schlecht');
+assert(metricCardWithLang('fr')._getMetricStatus('co2', 1200) === 'Élevé', 'fr CO2 1200 → Élevé');
+assert(metricCardWithLang('pt')._getMetricStatus('humidity', 20) === 'Muito Seco', 'pt humidity 20 → Muito Seco');
+assert(metricCardWithLang('pt')._getMetricStatus('temp_c', 23) === 'Morno', 'pt temp 23°C → Morno');
+assert(metricCardWithLang('es')._getMetricStatus('temp_c', 23) === 'Cálido', 'es temp 23°C → Cálido');
+
+// New-locale packs (hu #42, pl #54) localize the header status and per-metric pills
+assert(recCardWithLang('hu', 2000)._getRecommendation() === 'Szellőztessen most', 'hu rec text: Szellőztessen most');
+assert(recCardWithLang('pl', 2000)._getRecommendation() === 'Wywietrz', 'pl rec text: Wywietrz');
+assert(metricCardWithLang('hu')._getMetricStatus('co2', 2000) === 'Gyenge', 'hu CO2 2000 → Gyenge');
+assert(metricCardWithLang('pl')._getMetricStatus('co2', 2000) === 'Zły', 'pl CO2 2000 → Zły');
+assert(metricCardWithLang('hu')._getMetricStatus('temp_c', 23) === 'Meleg', 'hu temp 23°C → Meleg');
+assert(metricCardWithLang('pl')._getMetricStatus('humidity', 20) === 'Zbyt sucho', 'pl humidity 20 → Zbyt sucho');
+
+// Status keys added after #37 (O2/pressure tiers) resolve in every locale (en text or translation, never the raw key)
+for (const lang of ['en', 'es', 'fr', 'de', 'pt', 'hu', 'pl']) {
+  const c = metricCardWithLang(lang);
+  assert(c._getMetricStatus('o2', 21) !== 'normal', `${lang}: o2 normal status resolves`);
+  assert(c._getMetricStatus('pressure', 1000) !== 'slightly_low', `${lang}: pressure slightly_low status resolves`);
+}
+
 // Icon resolution works with both key (preferred) and English text (backward-compat)
 assert(recCardWithLang('en', 2000)._getRecommendationIcon('ventilate_now') === 'mdi:alert-circle', 'icon by key');
 assert(recCardWithLang('en', 2000)._getRecommendationIcon('Ventilate Now') === 'mdi:alert-circle', 'icon by English text (backward-compat)');
@@ -1402,6 +1696,15 @@ assert(card.getCardSize() === 14, 'All 11 sensors = 14');
 card._config.pressure_entity = 'sensor.pressure';
 assert(card.getCardSize() === 15, 'pressure adds one more = 15');
 
+card._config.o2_entity = 'sensor.o2';
+card._config.no2_entity = 'sensor.no2';
+card._config.o3_entity = 'sensor.o3';
+card._config.c3h8_entity = 'sensor.c3h8';
+assert(card.getCardSize() === 19, 'O2/NO2/O3/Propane add one each = 19');
+
+card._config.noise_entity = 'sensor.noise';
+assert(card.getCardSize() === 20, 'noise adds one more = 20');
+
 // ============================================================
 // GETCONFIG FORM TESTS
 // ============================================================
@@ -1427,10 +1730,12 @@ const allLabels = [
   'name', 'co2_entity', 'pm25_entity', 'humidity_entity', 'temperature_entity',
   'radon_entity', 'radon_longterm_entity', 'co_entity', 'hcho_entity', 'tvoc_entity',
   'pm4_entity', 'nox_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
+  'o2_entity', 'no2_entity', 'o3_entity', 'c3h8_entity',
   'outdoor_co2_entity', 'outdoor_pm25_entity', 'outdoor_humidity_entity', 'outdoor_temperature_entity',
   'outdoor_co_entity', 'outdoor_hcho_entity', 'outdoor_tvoc_entity',
   'outdoor_pm1_entity', 'outdoor_pm10_entity', 'outdoor_pm03_entity', 'outdoor_nox_entity',
-  'pressure_entity', 'outdoor_pressure_entity',
+  'outdoor_no2_entity', 'outdoor_o3_entity',
+  'pressure_entity', 'outdoor_pressure_entity', 'noise_entity',
   'air_quality_entity', 'hours_to_show', 'temperature_unit', 'radon_unit', 'show_min_max',
   'tvoc_unit', 'nox_unit', 'language',
   'recommendation_action', 'compact_alerts', 'auto_expand'
@@ -1469,9 +1774,10 @@ section('History Keys');
 const freshCard = new CardClass();
 const expectedKeys = [
   'co2', 'pm25', 'pm1', 'pm10', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'co', 'radon', 'radon_longterm',
-  'humidity', 'temperature', 'pressure',
+  'o2', 'no2', 'o3', 'c3h8',
+  'humidity', 'temperature', 'pressure', 'noise',
   'outdoor_co2', 'outdoor_pm25', 'outdoor_pm1', 'outdoor_pm10', 'outdoor_pm03',
-  'outdoor_hcho', 'outdoor_tvoc', 'outdoor_nox', 'outdoor_co',
+  'outdoor_hcho', 'outdoor_tvoc', 'outdoor_nox', 'outdoor_co', 'outdoor_no2', 'outdoor_o3',
   'outdoor_humidity', 'outdoor_temperature', 'outdoor_pressure'
 ];
 for (const key of expectedKeys) {

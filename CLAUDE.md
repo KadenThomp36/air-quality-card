@@ -47,11 +47,11 @@ To test in Home Assistant: copy `air-quality-card.js` to `/config/www/air-qualit
 
 `_getRecommendation()` is a priority cascade — order matters and is load-bearing:
 
-1. **CO life-safety first** (`> 100` → Danger, `> 35` → Warning). These are *never* suppressed by the outdoor-air override.
-2. CO2 / PM2.5 / PM10 / HCHO / tVOC / humidity rules in priority order.
-3. **Outdoor override**: if an outdoor PM2.5 or CO2 entity reads worse than indoor, ventilation recs are swapped for "Run Air Purifier" or "Keep Windows Closed". The `ventilationRecs` allowlist intentionally excludes CO recommendations — don't add CO to it.
+1. **CO life-safety first** (`> 100` → Danger, `> 35` → Warning), then **Propane** (`>= 0.42%` → Danger, `>= 0.21%` → Warning) and **low O2** (`< 16%` → Danger, `< 19.5%` → Warning). All three are life-safety checks and are *never* suppressed by the outdoor-air override.
+2. CO2 / PM2.5 / PM10 / HCHO / NO2 / O3 / tVOC / humidity rules in priority order.
+3. **Outdoor override**: if an outdoor PM2.5 or CO2 entity reads worse than indoor, ventilation recs are swapped for "Run Air Purifier" or "Keep Windows Closed". The `ventilationRecs` allowlist intentionally excludes CO/propane/O2 recommendations — don't add them to it.
 
-`_getOverallStatus()` is a separate cascade for the header badge color (CO and radon take priority over CO2/PM2.5).
+`_getOverallStatus()` is a separate cascade for the header badge color (CO, propane, and low O2 take priority over radon, which takes priority over CO2/PM2.5).
 
 `_getRadonAdvisory()` is its own banner, completely separate from the main recommendation. Radon changes over days/weeks and needs professional mitigation, not "open a window," so it has its own info/warning/danger tiers based on the EPA action level (4.0 pCi/L = 148 Bq/m³). It uses `max(short-term, long-term)` in Bq/m³.
 
@@ -61,6 +61,9 @@ To test in Home Assistant: copy `air-quality-card.js` to `/config/www/air-qualit
 - **Temperature**: `_isCelsius()` checks `temperature_unit` config first, falls back to `hass.config.unit_system.temperature`. Color thresholds are duplicated for °C and °F branches.
 - **tVOC**: `_isVOCIndex()` distinguishes Sensirion VOC Index (unitless 0–500) from absolute ppb. Auto-detect treats missing/empty `unit_of_measurement` or `"voc index"` as VOC Index. Different threshold tables apply to each.
 - **NOx**: `_isNOxIndex()` mirrors the tVOC split — Sensirion NOx Index (unitless, clean-air baseline ~1, unlike the VOC Index's 100) vs absolute ppb. Same auto-detect rule (missing/empty `unit_of_measurement` or `"nox index"` → index), forceable via `nox_unit` config. METRIC_DEFS has `nox_ppb`/`nox_index` — there is no plain `nox` key, so always go through `_noxMetric()`; both tables share the single `nox_thresholds` override.
+- **O2**: no fixed-unit-detection split like tVOC/NOx — always %vol. Thresholds are a bell around the 20.9% ambient baseline (like humidity), but colored as a *safety* bell (red tails, not amber) since there's no WHO/EPA ambient-O2 guideline to anchor to — defaults borrow OSHA's confined-space O2 safety bands instead. Below 16% is life-safety (see recommendation waterfall above). **Correctness trap**: O2's "unconfigured" fallback must be `null`, not `0` — 0% O2 is the worst possible reading, so the usual `this._config.x_entity ? this._getNumericState(...) : 0` pattern would make an unconfigured sensor look like a life-threatening emergency. `_getOverallStatus`/`_getRecommendationKey` both guard with `o2 !== null &&`.
+- **Propane (C3H8)**: %vol (not ppb/µg/m³ like the other gases, and not pre-scaled to %LEL). It's a combustible-gas leak hazard, not a WHO chronic-exposure pollutant, so it's treated as life-safety like CO rather than folded into the ventilation waterfall — thresholds anchor to 10%/20%/50% of propane's 2.1%vol LEL. `_renderGraph`'s optional min/max marker is passed the unit token `'%vol'` (not `'%'`) so `_formatGraphValue` doesn't round sub-1% readings down to display "0" — see that function's unit-based rounding table if you add another sub-1-precision metric.
+- **NO2/O3**: plain µg/m³ gases (WHO 2021 AQG + EU Ambient Air Quality Directive anchors), no unit-detection split. If a sensor reports ppb, override `no2_thresholds`/`o3_thresholds` (1 ppb NO2 ≈ 1.88 µg/m³, 1 ppb O3 ≈ 2.00 µg/m³) rather than adding auto-detection — not worth the complexity for two metrics.
 
 ### Adding a new sensor
 
