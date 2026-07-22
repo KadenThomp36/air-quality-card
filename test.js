@@ -1506,6 +1506,27 @@ assert(recCardWithLang('en', 2000)._getRecommendation() === 'Ventilate Now', 'en
 assert(recCardWithLang('es', 2000)._getRecommendation() === 'Ventila ahora', 'es rec text: Ventila ahora');
 assert(recCardWithLang('de', 2000)._getRecommendation() === 'Jetzt lüften', 'de rec text: Jetzt lüften');
 
+section('Per-metric status reflects language');
+
+function metricCardWithLang(lang) {
+  const c = new CardClass();
+  c.setConfig({ co2_entity: 'sensor.co2', pm25_entity: 'sensor.pm25', humidity_entity: 'sensor.h', temperature_entity: 'sensor.t', temperature_unit: 'C', language: lang });
+  c._hass = { config: { unit_system: { temperature: '°C' } }, states: {} };
+  return c;
+}
+
+// The bug: per-metric badge labels (`Poor`, `Elevated`, …) ignored the
+// configured language because METRIC_DEFS held English strings directly.
+// Verify each locale resolves them through the `status` translation group.
+assert(metricCardWithLang('en')._getMetricStatus('co2', 2000) === 'Poor', 'en CO2 2000 → Poor');
+assert(metricCardWithLang('pt')._getMetricStatus('co2', 2000) === 'Ruim', 'pt CO2 2000 → Ruim');
+assert(metricCardWithLang('es')._getMetricStatus('co2', 2000) === 'Malo', 'es CO2 2000 → Malo');
+assert(metricCardWithLang('de')._getMetricStatus('pm25', 50) === 'Schlecht', 'de PM2.5 50 → Schlecht');
+assert(metricCardWithLang('fr')._getMetricStatus('co2', 1200) === 'Élevé', 'fr CO2 1200 → Élevé');
+assert(metricCardWithLang('pt')._getMetricStatus('humidity', 20) === 'Muito Seco', 'pt humidity 20 → Muito Seco');
+assert(metricCardWithLang('pt')._getMetricStatus('temp_c', 23) === 'Morno', 'pt temp 23°C → Morno');
+assert(metricCardWithLang('es')._getMetricStatus('temp_c', 23) === 'Cálido', 'es temp 23°C → Cálido');
+
 // Icon resolution works with both key (preferred) and English text (backward-compat)
 assert(recCardWithLang('en', 2000)._getRecommendationIcon('ventilate_now') === 'mdi:alert-circle', 'icon by key');
 assert(recCardWithLang('en', 2000)._getRecommendationIcon('Ventilate Now') === 'mdi:alert-circle', 'icon by English text (backward-compat)');
