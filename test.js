@@ -782,7 +782,7 @@ defaultOrderCard.setConfig({ co2_entity: 'sensor.co2' });
 const defaultOrder = defaultOrderCard._getMetricOrder();
 assert(defaultOrder[0] === 'co', 'default order: co first');
 assert(defaultOrder[defaultOrder.length - 1] === 'pressure', 'default order: pressure last');
-assert(defaultOrder.length === 14, 'default order: all 14 metrics');
+assert(defaultOrder.length === 18, 'default order: all 18 metrics');
 
 section('Metric order — user override');
 
@@ -799,7 +799,7 @@ assert(reordered[3] === 'pm10', 'user order: pm10 fourth');
 assert(reordered[4] === 'pm25', 'user order: pm25 fifth');
 // Unmentioned metrics get appended in default order — user never loses a sensor
 assert(reordered.includes('radon'), 'unmentioned metrics still present');
-assert(reordered.length === 14, 'user order: total still 14');
+assert(reordered.length === 18, 'user order: total still 18');
 
 section('Metric order — invalid input');
 
@@ -1140,6 +1140,158 @@ histNox._loadHistory();
 assert(histCalls.some(u => u.includes('sensor.nox')), '_loadHistory fetches the indoor NOx entity');
 assert(histCalls.some(u => u.includes('sensor.out_nox')), '_loadHistory fetches the outdoor NOx entity');
 
+// ============================================================
+// O2, NO2, O3, PROPANE (air-Q Science support)
+// ============================================================
+
+section('O2 Color (bell, OSHA-based)');
+assert(card._getO2Color(10) === '#f44336', 'O2 10% = red (dangerous, <16%)');
+assert(card._getO2Color(18) === '#ff9800', 'O2 18% = orange (low, 16-19.5%)');
+assert(card._getO2Color(21) === '#4caf50', 'O2 21% = green (normal, 19.5-23.5%)');
+assert(card._getO2Color(24) === '#ff9800', 'O2 24% = orange (enriched, 23.5-25%)');
+assert(card._getO2Color(27) === '#f44336', 'O2 27% = red (dangerous, >=25%)');
+assert(card._getMetricStatus('o2', 10) === 'Dangerous', 'O2 10% status = Dangerous');
+assert(card._getMetricStatus('o2', 21) === 'Normal', 'O2 21% status = Normal');
+
+section('NO2 Color (WHO 2021 + EU AQD anchors)');
+assert(card._getNO2Color(5) === '#4caf50', 'NO2 5 µg/m³ = green');
+assert(card._getNO2Color(15) === '#8bc34a', 'NO2 15 µg/m³ = light green');
+assert(card._getNO2Color(30) === '#ffc107', 'NO2 30 µg/m³ = yellow');
+assert(card._getNO2Color(100) === '#ff9800', 'NO2 100 µg/m³ = orange');
+assert(card._getNO2Color(250) === '#f44336', 'NO2 250 µg/m³ = red');
+
+section('O3 Color (WHO 2021 + EU AQD anchors)');
+assert(card._getO3Color(30) === '#4caf50', 'O3 30 µg/m³ = green');
+assert(card._getO3Color(80) === '#8bc34a', 'O3 80 µg/m³ = light green');
+assert(card._getO3Color(150) === '#ffc107', 'O3 150 µg/m³ = yellow');
+assert(card._getO3Color(200) === '#ff9800', 'O3 200 µg/m³ = orange');
+assert(card._getO3Color(300) === '#f44336', 'O3 300 µg/m³ = red');
+
+section('Propane (C3H8) Color (%vol, LEL-anchored safety bands)');
+assert(card._getC3H8Color(0.01) === '#4caf50', 'Propane 0.01% = green (safe)');
+assert(card._getC3H8Color(0.1) === '#8bc34a', 'Propane 0.1% = light green (low)');
+assert(card._getC3H8Color(0.3) === '#ffc107', 'Propane 0.3% = yellow (moderate)');
+assert(card._getC3H8Color(0.6) === '#ff9800', 'Propane 0.6% = orange (high)');
+assert(card._getC3H8Color(1.5) === '#f44336', 'Propane 1.5% = red (dangerous)');
+assert(card._getMetricStatus('c3h8', 0.01) === 'Safe', 'Propane 0.01% status = Safe');
+assert(card._getMetricStatus('c3h8', 1.5) === 'Dangerous', 'Propane 1.5% status = Dangerous');
+
+section('Recommendation — Propane/O2 Safety (life-safety like CO)');
+setStates({ c3h8: 0.5 });
+assert(card._getRecommendation() === 'Gas Leak Danger — Evacuate', 'Propane 0.5% (>=0.42) = Gas Leak Danger');
+
+setStates({ c3h8: 0.3 });
+assert(card._getRecommendation() === 'Gas Leak Warning — Ventilate Now', 'Propane 0.3% (>=0.21) = Gas Leak Warning');
+
+setStates({ c3h8: 0.05 });
+assert(card._getRecommendation() === 'All Good', 'Propane 0.05% (below warning) = All Good');
+
+setStates({ o2: 14 });
+assert(card._getRecommendation() === 'Low Oxygen Danger — Leave Area', 'O2 14% (<16) = Low Oxygen Danger');
+
+setStates({ o2: 18 });
+assert(card._getRecommendation() === 'Low Oxygen Warning — Ventilate Now', 'O2 18% (<19.5) = Low Oxygen Warning');
+
+setStates({ o2: 21 });
+assert(card._getRecommendation() === 'All Good', 'O2 21% (normal) = All Good');
+
+// CO still wins over propane/O2 (documented top life-safety priority)
+setStates({ co: 150, c3h8: 0.5, o2: 10 });
+assert(card._getRecommendation() === 'CO Danger — Leave Area', 'CO still takes priority over propane/O2 danger');
+
+// Propane/O2 danger take priority over the CO2/PM2.5 waterfall and radon
+setStates({ c3h8: 0.5, co2: 2000, pm25: 50 });
+assert(card._getRecommendation() === 'Gas Leak Danger — Evacuate', 'Propane danger overrides CO2/PM2.5 waterfall');
+
+// Not suppressed by outdoor override (mirrors CO's exclusion from ventilationKeys)
+setStates({ c3h8: 0.5 });
+card._config.outdoor_co2_entity = 'sensor.outdoor_co2';
+card._config.outdoor_pm25_entity = 'sensor.outdoor_pm25';
+card._hass.states['sensor.outdoor_co2'] = { state: '5000' };
+card._hass.states['sensor.outdoor_pm25'] = { state: '100' };
+assert(card._getRecommendation() === 'Gas Leak Danger — Evacuate', 'Propane danger not suppressed by outdoor override');
+
+setStates({ o2: 14 });
+card._config.outdoor_co2_entity = 'sensor.outdoor_co2';
+card._hass.states['sensor.outdoor_co2'] = { state: '5000' };
+assert(card._getRecommendation() === 'Low Oxygen Danger — Leave Area', 'O2 danger not suppressed by outdoor override');
+
+section('O2 unconfigured does not trigger a false life-safety alarm (regression guard)');
+// Unlike other gases, O2's unconfigured fallback must be null, not 0 — 0% O2
+// is the worst possible reading, so a naive `: 0` default would make an
+// unconfigured sensor look like a life-threatening emergency.
+setStates({ co2: 400 });
+assert(card._getRecommendation() === 'All Good', 'no o2_entity configured → no false O2 alarm in recommendation');
+assert(card._getOverallStatus().status === 'Excellent', 'no o2_entity configured → no false O2 alarm in overall status');
+
+section('Recommendation — NO2/O3 waterfall + outdoor override');
+setStates({ no2: 250 });
+assert(card._getRecommendation() === 'Ventilate — NO₂ Elevated', 'NO2 250 µg/m³ (>200) = Ventilate NO2');
+
+setStates({ o3: 250 });
+assert(card._getRecommendation() === 'Ventilate — O₃ Elevated', 'O3 250 µg/m³ (>240) = Ventilate O3');
+
+// HCHO still outranks NO2/O3 in the waterfall (checked first)
+setStates({ hcho: 150, no2: 250 });
+assert(card._getRecommendation() === 'Ventilate — Formaldehyde', 'HCHO outranks NO2 in the waterfall');
+
+// Suppressed/redirected by the existing outdoor CO2/PM2.5-worse override, same as HCHO/tVOC
+setStates({ no2: 250, co2: 1100 });
+card._config.outdoor_co2_entity = 'sensor.outdoor_co2';
+card._hass.states['sensor.outdoor_co2'] = { state: '1200' };
+assert(card._getRecommendation() === 'Keep Windows Closed', 'ventilate_no2 suppressed when outdoor CO2 is worse');
+
+section('Outdoor NO2/O3 mirror');
+
+const outNo2 = new CardClass();
+outNo2.setConfig({ outdoor_no2_entity: 'sensor.out_no2' });
+assert(outNo2._outdoorOnly === true, 'outdoor NO2 only → outdoor-only mode');
+assert(outNo2._config.no2_entity === 'sensor.out_no2', 'outdoor NO2 promoted to primary slot');
+
+const pairNo2 = new CardClass();
+pairNo2.setConfig({ no2_entity: 'sensor.no2', outdoor_no2_entity: 'sensor.out_no2' });
+assert(pairNo2._outdoorOnly === false, 'indoor+outdoor NO2 → normal mode');
+assert(pairNo2._config.outdoor_no2_entity === 'sensor.out_no2', 'outdoor NO2 kept as overlay');
+
+const outO3 = new CardClass();
+outO3.setConfig({ outdoor_o3_entity: 'sensor.out_o3' });
+assert(outO3._outdoorOnly === true, 'outdoor O3 only → outdoor-only mode');
+assert(outO3._config.o3_entity === 'sensor.out_o3', 'outdoor O3 promoted to primary slot');
+
+const histGases = new CardClass();
+histGases.setConfig({
+  no2_entity: 'sensor.no2', outdoor_no2_entity: 'sensor.out_no2',
+  o3_entity: 'sensor.o3', outdoor_o3_entity: 'sensor.out_o3'
+});
+const gasHistCalls = [];
+histGases._hass = {
+  config: { unit_system: { temperature: '°F' } },
+  states: {
+    'sensor.no2': { state: '10' }, 'sensor.out_no2': { state: '20' },
+    'sensor.o3': { state: '40' }, 'sensor.out_o3': { state: '60' }
+  },
+  callApi: async (method, uri) => { gasHistCalls.push(uri); return [[{ last_changed: '2026-06-11T00:00:00Z', state: '5' }]]; }
+};
+histGases._renderGraphs = () => {};
+histGases._loadHistory();
+assert(gasHistCalls.some(u => u.includes('sensor.no2')), '_loadHistory fetches the indoor NO2 entity');
+assert(gasHistCalls.some(u => u.includes('sensor.out_no2')), '_loadHistory fetches the outdoor NO2 entity');
+assert(gasHistCalls.some(u => u.includes('sensor.o3')), '_loadHistory fetches the indoor O3 entity');
+assert(gasHistCalls.some(u => u.includes('sensor.out_o3')), '_loadHistory fetches the outdoor O3 entity');
+
+section('Alert chip priority — O2/Propane life-safety boost');
+const safetyChipCard = new CardClass();
+safetyChipCard.setConfig({ o2_entity: 'sensor.o2', c3h8_entity: 'sensor.c3h8', co2_entity: 'sensor.co2' });
+safetyChipCard._hass = { config: { unit_system: { temperature: '°F' } }, states: {
+  'sensor.o2': { state: '18' },   // orange (Low) tier
+  'sensor.c3h8': { state: '0.3' }, // yellow (Moderate) tier
+  'sensor.co2': { state: '2000' }  // red (Poor) tier, no boost
+} };
+const safetyChips = safetyChipCard._getAbnormalMetrics();
+assert(safetyChips.length === 3, 'O2 + Propane + CO2 all flagged');
+assert(safetyChips[0].metric === 'o2', 'life-safety O2 sorts first even at a lower tier color than CO2');
+assert(safetyChips[1].metric === 'c3h8', 'life-safety Propane sorts ahead of CO2 too');
+
 section('Compact mode — tap actions');
 
 // _fireAction is a no-op when the corresponding action isn't configured
@@ -1390,6 +1542,12 @@ assert(card.getCardSize() === 14, 'All 11 sensors = 14');
 card._config.pressure_entity = 'sensor.pressure';
 assert(card.getCardSize() === 15, 'pressure adds one more = 15');
 
+card._config.o2_entity = 'sensor.o2';
+card._config.no2_entity = 'sensor.no2';
+card._config.o3_entity = 'sensor.o3';
+card._config.c3h8_entity = 'sensor.c3h8';
+assert(card.getCardSize() === 19, 'O2/NO2/O3/Propane add one each = 19');
+
 // ============================================================
 // GETCONFIG FORM TESTS
 // ============================================================
@@ -1415,9 +1573,11 @@ const allLabels = [
   'name', 'co2_entity', 'pm25_entity', 'humidity_entity', 'temperature_entity',
   'radon_entity', 'radon_longterm_entity', 'co_entity', 'hcho_entity', 'tvoc_entity',
   'pm4_entity', 'nox_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
+  'o2_entity', 'no2_entity', 'o3_entity', 'c3h8_entity',
   'outdoor_co2_entity', 'outdoor_pm25_entity', 'outdoor_humidity_entity', 'outdoor_temperature_entity',
   'outdoor_co_entity', 'outdoor_hcho_entity', 'outdoor_tvoc_entity',
   'outdoor_pm1_entity', 'outdoor_pm10_entity', 'outdoor_pm03_entity', 'outdoor_nox_entity',
+  'outdoor_no2_entity', 'outdoor_o3_entity',
   'pressure_entity', 'outdoor_pressure_entity',
   'air_quality_entity', 'hours_to_show', 'temperature_unit', 'radon_unit', 'show_min_max',
   'tvoc_unit', 'nox_unit', 'language',
@@ -1457,9 +1617,10 @@ section('History Keys');
 const freshCard = new CardClass();
 const expectedKeys = [
   'co2', 'pm25', 'pm1', 'pm10', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'co', 'radon', 'radon_longterm',
+  'o2', 'no2', 'o3', 'c3h8',
   'humidity', 'temperature', 'pressure',
   'outdoor_co2', 'outdoor_pm25', 'outdoor_pm1', 'outdoor_pm10', 'outdoor_pm03',
-  'outdoor_hcho', 'outdoor_tvoc', 'outdoor_nox', 'outdoor_co',
+  'outdoor_hcho', 'outdoor_tvoc', 'outdoor_nox', 'outdoor_co', 'outdoor_no2', 'outdoor_o3',
   'outdoor_humidity', 'outdoor_temperature', 'outdoor_pressure'
 ];
 for (const key of expectedKeys) {
