@@ -1407,6 +1407,43 @@ timeCard._config.language = 'auto';
 timeCard._hass = { locale: { language: 'fr-FR' }, config: { unit_system: { temperature: '°C' } }, states: {} };
 assert(timeCard._dateLocale() === 'fr-FR', 'auto date locale uses the full hass locale tag');
 
+section('Graph times follow the Home Assistant profile time format (#60)');
+
+const profileTimeCard = new CardClass();
+profileTimeCard.setConfig({ co2_entity: 'sensor.co2', language: 'en-US', hours_to_show: 24 });
+profileTimeCard._hass = { locale: { language: 'en-US', time_format: '24' } };
+assert(profileTimeCard._formatAxisTime(sampleTime) === '14:30', '24-hour profile overrides English axis formatting');
+assert(profileTimeCard._formatTooltipTime(sampleTime) === '14:30', '24-hour profile overrides English tooltip formatting');
+const midnight = new Date('2026-07-18T00:00:00');
+assert(profileTimeCard._formatAxisTime(midnight) === '00:00', '24-hour midnight starts at 00, not 24');
+profileTimeCard._config.hours_to_show = 72;
+assert(profileTimeCard._formatAxisTime(sampleTime) === 'Sat, 14', 'multi-day axis uses the 24-hour profile');
+assert(profileTimeCard._formatTooltipTime(sampleTime).endsWith('14:30'), 'multi-day tooltip uses the 24-hour profile');
+profileTimeCard._config.hours_to_show = 168;
+assert(profileTimeCard._formatAxisTime(sampleTime) === 'Jul 18', 'date-only axis labels stay unchanged');
+
+profileTimeCard._config.language = 'de-DE';
+profileTimeCard._config.hours_to_show = 24;
+profileTimeCard._hass.locale.time_format = '12';
+const german12 = sampleTime.toLocaleTimeString('de-DE', { hour: 'numeric', minute: '2-digit', hourCycle: 'h12' });
+assert(profileTimeCard._formatAxisTime(sampleTime) === german12, '12-hour profile overrides German axis formatting');
+assert(profileTimeCard._formatTooltipTime(sampleTime) === german12, '12-hour profile overrides German tooltip formatting');
+profileTimeCard._hass.locale.time_format = 'language';
+assert(profileTimeCard._formatAxisTime(sampleTime) === '14:30', 'language preference keeps the card language default');
+profileTimeCard._config.language = 'en-US';
+assert(profileTimeCard._formatAxisTime(sampleTime) === '2:30 PM', 'language preference supports 12-hour locales');
+
+profileTimeCard._hass.locale.time_format = 'system';
+const systemCycle = new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hour12 ? 'h12' : 'h23';
+// Choose a card language with the opposite convention to the test machine.
+profileTimeCard._config.language = systemCycle === 'h12' ? 'de-DE' : 'en-US';
+const systemTime = sampleTime.toLocaleTimeString(profileTimeCard._config.language, { hour: 'numeric', minute: '2-digit', hourCycle: systemCycle });
+assert(profileTimeCard._formatAxisTime(sampleTime) === systemTime, 'system preference uses the browser clock convention');
+assert(profileTimeCard._formatTooltipTime(sampleTime) === systemTime, 'system preference also applies to tooltips');
+profileTimeCard._hass = null;
+profileTimeCard._config.language = 'en-US';
+assert(profileTimeCard._formatAxisTime(sampleTime) === '2:30 PM', 'missing HA locale preserves the previous language fallback');
+
 section('Compact mode — tap actions');
 
 // _fireAction is a no-op when the corresponding action isn't configured

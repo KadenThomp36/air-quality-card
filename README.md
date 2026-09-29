@@ -285,6 +285,8 @@ The card auto-detects your Home Assistant frontend language and translates the s
 
 If auto-detection picks the wrong language, force one explicitly with `language: es` (or `en` / `fr` / `de` / `pt` / `hu` / `pl`).
 
+Graph time labels and hover tooltips follow the **Time format** setting in your Home Assistant profile. Select **24 hours** to use a 24-hour clock while keeping the card in English, or **12 hours** for AM/PM. **System default** uses your browser's clock format; **Language** uses the card's language.
+
 To contribute a new language: open a PR adding a block to the `TRANSLATIONS` const in `air-quality-card.js`. Copy the `en:` block, rename the key (e.g. `it:` for Italian), and translate the values — keep the structure identical. English is the fallback for any missing key.
 
 ### Outdoor Sensors
