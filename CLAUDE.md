@@ -20,81 +20,77 @@ To test in Home Assistant: copy `air-quality-card.js` to `/config/www/air-qualit
 
 ## Architecture
 
-### Two custom elements in one file
+### One custom element, native HA APIs only
 
-`air-quality-card.js` registers two web components at the bottom:
+`air-quality-card.js` registers a single web component, **`air-quality-card`** (`class AirQualityCard extends HTMLElement` — vanilla, shadow DOM, no framework, no imports). Everything else comes from Home Assistant itself; prefer an HA-provided mechanism over reimplementing one:
 
-1. **`air-quality-card`** — `class AirQualityCard extends HTMLElement` (vanilla, shadow DOM, no framework).
-2. **`air-quality-card-editor`** — `class AirQualityCardEditor extends LitElement`. LitElement is *not imported*; it's grabbed at runtime by walking up the prototype of an HA built-in:
-
-   ```js
-   const LitElement = Object.getPrototypeOf(
-     customElements.get("hui-masonry-view") || customElements.get("hui-view")
-   );
-   ```
-
-   This is intentional — the card has no dependencies and must run as a single file dropped into `/config/www/`. Don't try to `import` lit; it would break the distribution model.
+- **Editor**: `static getConfigForm()` returns an `ha-form` schema (`configForm()` at the bottom of the file) and HA renders it. There is no editor element and no Lit — don't reintroduce `getConfigElement` (it takes precedence over the form) or the old `Object.getPrototypeOf(customElements.get('hui-masonry-view'))` trick. `computeLabel` only receives HA's `localize`, so labels come from `TRANSLATIONS[editorLanguage]`, a module variable every card instance updates in its `hass` setter. Fields HA already localizes (`NATIVE_EDITOR_LABELS`: name, hours_to_show, tap/hold/double_tap_action, interactions) return `undefined` so HA's own label is used.
+- **History**: one `history/stream` websocket subscription (`hass.connection.subscribeMessage`) for every graphed entity, the same way HA's history-graph card does it. Rows arrive as `{s, lu}` (epoch seconds) into `_historyRaw[entity_id]`; `_buildHistory()` trims to the sliding window, converts units and carries the current state to "now". The subscription follows `connectedCallback`/`disconnectedCallback` (HA detaches hidden cards and rebuilds preview cards), resubscribes on the connection's `ready` event, and a 60 s timer slides the window. A token guards against a stale subscription writing into a re-configured card.
+- **Actions**: `hass-action` events (tap/hold/double_tap, recommendation button) and `hass-more-info` (graph tap). `_bindActions()` implements HA's gesture timings (500 ms hold, 250 ms double-tap window, Enter/Space = tap) because HA's action-handler directive is internal.
+- **Sizing / picker**: `getGridOptions()` for sections view, `getStubConfig(hass)` and `window.customCards[].getEntitySuggestion` build a config from a real device's sensors via `configForDevice()` + `DEVICE_CLASS_METRIC`.
+- **Formatting**: `_formatNumber()` follows `hass.locale.number_format` like HA's `formatNumber`; times follow `locale.time_format` (`_timeHourCycle`) and `locale.time_zone` (`_timeZone`); an entity's `display_precision` (from `hass.entities`) beats the card's default decimals.
+- **Theming**: `<ha-card>` provides background/border/radius; use HA CSS variables (`--primary-text-color`, `--secondary-background-color`, `--primary-color` …) with fallbacks. The tier palette colors are data, not theme.
 
 ### Data tables at the top of the file
 
-- **`METRIC_DEFS`** — one entry per metric key: 4 ascending `defaultThresholds` → 5 tiers, a 5-color scale (`SCALE_*`), and 5 `labelKeys`. Colors and per-metric status badges all go through `_tieredValue` via `_getMetricColor(metric, v)` / `_getMetricStatus(metric, v)`. `_metricThresholds(metric)` maps each key to its `<x>_thresholds` config override (only valid if it's exactly 4 numbers). The per-metric `_getXColor`/`_getXStatus` methods are thin wrappers kept for backward compatibility. Keys that split by mode (`tvoc_ppb`/`tvoc_index`, `nox_ppb`/`nox_index`, `temp_c`/`temp_f`) are chosen at call time through `_tvocMetric()`/`_noxMetric()`/`_tempMetric()`.
-- **`TRANSLATIONS`** — `en`, `es`, `fr`, `de`, `pt`, `hu`, `pl`. Each has these groups: `status`, `recommendation`, `subtitle`, `radon`, `metric`, `editor`. `_t(group, key)` falls back to English, then to the raw key, so a missing translation shows English instead of breaking. Every `labelKeys` value must exist in each locale's `status` group. Subtitles use `{placeholder}` interpolation via `_ts()`. The editor has its own `_t`/`_resolveLanguage` copy, plus a `localFallbacks` map in `_computeLabel` for fields that have no `editor` translation yet.
+- **`METRIC_DEFS`** — one entry per metric key: 4 ascending `defaultThresholds` → 5 tiers, a 5-color scale (`SCALE_*`), and 5 `labelKeys`, each with a comment citing its source. Colors and status labels go through `_getMetricColor(defKey, v)` / `_getMetricStatus(defKey, v)`. `_metricThresholds(defKey)` = `_thresholdOverride(defKey)` (the user's `<x>_thresholds` if it's exactly 4 numbers) or the default. Keys that split by mode (`tvoc_ppb`/`tvoc_index`, `nox_ppb`/`nox_index`, `temp_c`/`temp_f`) are picked by `_defKey(metric)`.
+- **`UNIT_CONVERSIONS`** — CO/HCHO/NO₂/O₃ readings in other units (µg/m³, mg/m³, ppb, ppm) are converted into the threshold unit by `_unitFactor()`. **Unless the user overrode that metric's thresholds** — then the override is taken to be in the sensor's own unit and nothing is converted (issue #59's workaround config depends on this). `normalizeUnit()` canonicalizes spellings to HA's (`μg/m³` with Greek mu, as in `homeassistant/const.py`).
+- **`TRANSLATIONS`** — `en`, `es`, `fr`, `de`, `pt`, `hu`, `pl`, each with groups `status`, `recommendation`, `subtitle`, `radon`, `metric`, `editor`, `label`. Every locale must have every key (a quick diff script against `en` is the easiest check). `_t` falls back to English, then the raw key. Subtitles interpolate `{value}` with the number **and its unit** (`_formatWithUnit`) — never hardcode a unit in a subtitle string. Other tables: `GRAPH_ORDER`/`GRAPH_LABELS` (graph cards), `REC_SEVERITY` (banner styling per recommendation), `OVERALL_SEVERITY` (tier color → header severity).
 
-### Card lifecycle (`AirQualityCard`)
+### Reading values
 
-- `setConfig(config)` — validates that at least one entity in `indoorEntityKeys`/`outdoorEntityKeys` is set, merges defaults, resets `_rendered` and `_historyLoaded` so the next `hass` setter rebuilds the card. **Outdoor-only mode**: if only `outdoor_*` entities are set, `promotionMap` moves each into its indoor slot and sets `_outdoorOnly`, which makes `_getRecommendationKey()` return `null` (no recommendations).
-- `set hass(hass)` — runs `_initialRender()` + `_loadHistory()` exactly once (history is skipped in compact mode), then `_maybeAutoExpand()` + `_updateStates()` on every state change.
-- **Display modes** (`display: full | compact | expandable`): `_initialRender()` hands off to `_renderCompact()` when `_isCompact()` is true. The compact view's alert chips and `auto_expand` both come from `_getAbnormalMetrics()`, which ranks out-of-range metrics by color severity plus `PRIORITY_BOOST` so life-safety metrics are never truncated away.
-- `_initialRender()` writes the entire `shadowRoot.innerHTML` (HTML + `<style>`) based on which entities are configured. Sections are conditionally included via `${showCO2 ? '...' : ''}` template literals. DOM ids follow `<metric>-graph-container`, `<metric>-value`, `<metric>-svg`, etc. `_applyMetricOrder()` reorders cards with flexbox `order` according to `_getMetricOrder()`.
-- `_updateStates()` does **targeted DOM updates by `id`** — it does *not* re-render. When adding a new field, both `_initialRender` (to add the element) and `_updateStates` (to update it) need changes.
-- `_renderGraphs()` calls `_renderGraph()` per sensor, building SVG paths into pre-existing `<svg>` elements.
+- `_getNumericState(id)` returns **`null`** for missing/unavailable/non-numeric states — never 0. A dead sensor must not read as clean air, "Too Dry", or (for O₂) a lethal 0%. Every consumer handles `null`; keep it that way.
+- `_metricValue(metric, entityKey?)` = numeric state × unit factor; use it (not raw states) anywhere a reading is compared against thresholds. Outdoor mirrors: `_metricValue('pm25', 'outdoor_pm25_entity')`.
+- `_metricReading(metric)` bundles value + tier color + status for one display metric (radon = max of short/long-term in Bq/m³); `_getAbnormalMetrics()` and the header fold use it.
+
+### Card lifecycle
+
+- `setConfig(config)` — validates that at least one entity in `indoorEntityKeys`/`outdoorEntityKeys` is set, merges defaults (raw config kept in `_rawConfig` for "did the user set this?" checks), drops the history subscription, resets `_rendered`/`_historyLoaded`. **Outdoor-only mode**: if only `outdoor_*` entities are set, `promotionMap` moves each into its indoor slot and sets `_outdoorOnly` (no recommendations).
+- `set hass(hass)` — first call renders and subscribes to history (not in compact mode). After that it **returns early unless a watched entity's state object changed** (`_watchedEntityChanged`) — HA pushes a new hass for every state change in the whole system. A locale change re-renders.
+- **Display modes** (`display: full | compact | expandable`): `_initialRender()` hands off to `_renderCompact()` when `_isCompact()`. Alert chips and `auto_expand` come from `_getAbnormalMetrics()` (severity + `PRIORITY_BOOST` so life-safety metrics are never truncated away).
+- `_initialRender()` writes the whole `shadowRoot.innerHTML`; graph cards are generated by `_graphBlockHtml(metric)` for each configured metric in `GRAPH_ORDER` (ids `<metric>-graph-container`, `-value`, `-svg`, `-tooltip`, …), reflowed by `_applyMetricOrder()`, and wired once by `_setupGraphInteractions()`. Anything interpolated into markup that isn't a literal goes through `escapeHtml()` (units and names can come from integrations).
+- `_updateStates()` does targeted DOM updates by id, table-driven: `_updateRecommendation(key)` and `_updateMetricValue(metric)` per metric (`_metricUnit`, `_metricDecimals`, `_outdoorSuffix`).
+- `_renderGraphs()` rebuilds the series and calls `_renderGraph()` per metric with `_graphRange(metric)` — the default fixed range, or one derived from the user's threshold override (so inHg pressure or µg/m³ CO still graph sensibly). Gradients use `gradientUnits="userSpaceOnUse"`; with bounding-box units a perfectly flat line is not painted at all.
 
 ### The recommendation waterfall
 
-`_getRecommendationKey()` is a priority cascade that returns a translation key. `_getRecommendation()` only translates that key, and `_getRecommendationIcon()` plus the subtitle logic in `_updateStates()` look up by the same key. Order matters and is load-bearing:
+`_getRecommendationKey()` returns a translation key; `_getRecommendation()` translates it and `_updateRecommendation()` builds the subtitle and styling. **Every cutoff is a tier boundary of `_metricThresholds()`** (`above(value, metric, tier)`), so badges, header and recommendation always agree and user overrides apply everywhere (#59). Order is load-bearing:
 
-1. **CO life-safety first** (`> 100` → Danger, `> 35` → Warning), then **Propane** (`>= 0.42%` → Danger, `>= 0.21%` → Warning) and **low O2** (`< 16%` → Danger, `< 19.5%` → Warning). All three are life-safety checks and are *never* suppressed by the outdoor-air override.
-2. CO2 / PM2.5 / PM10 / HCHO / NO2 / O3 / tVOC / humidity / noise rules in priority order.
-3. **Outdoor override**: if an outdoor PM2.5 or CO2 entity reads worse than indoor, ventilation recs are swapped for "Run Air Purifier" or "Keep Windows Closed". If there's no indoor counterpart, "worse" means the outdoor value is at or above the metric's elevated tier (`thresholds[2]`). Don't compare against an implicit 0 (#35). The `ventilationKeys` allowlist intentionally excludes CO/propane/O2 recommendations — don't add them to it.
+1. **Life-safety**: CO (`> t[3]` danger, `> t[2]` warning), propane (`>= t[2]`/`>= t[1]`), low O₂ (`< t[0]`/`< t[1]`), then elevated CO (`> t[1]`) — ahead of particulates, because a purifier does nothing for CO. None of these are ever touched by the outdoor override.
+2. CO₂ / PM2.5 / PM10 / HCHO / NO₂ / O₃ / tVOC (`t[2]` of whichever tVOC table applies) / humidity / noise.
+3. **Outdoor override** (`_outdoorComparison()`): if outdoor PM2.5 or CO₂ is worse, ventilation keys become "Run Air Purifier"/"Keep Windows Closed". With no usable indoor reading (unconfigured *or unavailable*), "worse" means the outdoor value reached `thresholds[2]` (#35). The `ventilationKeys` allowlist must never contain CO/propane/O₂ keys.
 
-A new recommendation key needs entries in `TRANSLATIONS.*.recommendation`, `*.subtitle` (usually plus a `_unknown` variant), the icon map, and the subtitle branch in `_updateStates()`.
+A new recommendation key needs `TRANSLATIONS.*.recommendation`, `*.subtitle` (plus a `_unknown` variant), an icon in `_getRecommendationIcon`, a `REC_SEVERITY` entry, and a case in `_updateRecommendation`.
 
-`_getOverallStatus()` is a separate cascade for the header badge color (CO, propane, and low O2 take priority over radon, which takes priority over CO2/PM2.5). **Exception:** if `air_quality_entity` is set, it short-circuits the whole cascade, including CO. The badge then shows that entity's state, or tiers a numeric index through `air_quality_thresholds`.
+`_getOverallStatus()` (header badge): life-safety first — **above** `air_quality_entity`, which otherwise short-circuits (or tiers a numeric index via `air_quality_thresholds`). Then radon (poor at `t[3]`, fair at `t[2]`), then the worst tier of every configured air-quality metric. With no air-quality reading at all it shows the worst comfort metric's own status (temperature/humidity/noise, #51), and "Unavailable" if nothing reads.
 
-`_getRadonAdvisory()` is its own banner, completely separate from the main recommendation. Radon changes over days/weeks and needs professional mitigation, not "open a window," so it has its own info/warning/danger tiers based on the EPA action level (4.0 pCi/L = 148 Bq/m³). It uses `max(short-term, long-term)` in Bq/m³.
+`_getRadonAdvisory()` is its own banner (info/warning/danger at radon `t[1]`/`t[2]`/`t[3]`), separate from the recommendation — radon needs professional mitigation, not "open a window".
 
 ### Units and conversions
 
-- **Radon**: stored/compared internally in Bq/m³. `_getRadonBqm3(value)` converts based on `_isRadonPciL()` (1 pCi/L = 37 Bq/m³). User can force units via `radon_unit` config; otherwise auto-detect from the sensor's `unit_of_measurement`.
-- **Temperature**: `_isCelsius()` checks `temperature_unit` config first, falls back to `hass.config.unit_system.temperature`. Color thresholds are duplicated for °C and °F branches.
-- **tVOC**: `_isVOCIndex()` distinguishes Sensirion VOC Index (unitless 0–500) from absolute ppb. Auto-detect treats missing/empty `unit_of_measurement` or `"voc index"` as VOC Index. Different threshold tables apply to each.
-- **NOx**: `_isNOxIndex()` mirrors the tVOC split — Sensirion NOx Index (unitless, clean-air baseline ~1, unlike the VOC Index's 100) vs absolute ppb. Same auto-detect rule (missing/empty `unit_of_measurement` or `"nox index"` → index), forceable via `nox_unit` config. METRIC_DEFS has `nox_ppb`/`nox_index` — there is no plain `nox` key, so always go through `_noxMetric()`; both tables share the single `nox_thresholds` override.
-- **O2**: no fixed-unit-detection split like tVOC/NOx — always %vol. Thresholds are a bell around the 20.9% ambient baseline (like humidity), but colored as a *safety* bell (red tails, not amber) since there's no WHO/EPA ambient-O2 guideline to anchor to — defaults borrow OSHA's confined-space O2 safety bands instead. Below 16% is life-safety (see recommendation waterfall above). **Correctness trap**: O2's "unconfigured" fallback must be `null`, not `0` — 0% O2 is the worst possible reading, so the usual `this._config.x_entity ? this._getNumericState(...) : 0` pattern would make an unconfigured sensor look like a life-threatening emergency. `_getOverallStatus`/`_getRecommendationKey` both guard with `o2 !== null &&`.
-- **Propane (C3H8)**: %vol (not ppb/µg/m³ like the other gases, and not pre-scaled to %LEL). It's a combustible-gas leak hazard, not a WHO chronic-exposure pollutant, so it's treated as life-safety like CO rather than folded into the ventilation waterfall — thresholds anchor to 10%/20%/50% of propane's 2.1%vol LEL. `_renderGraph`'s optional min/max marker is passed the unit token `'%vol'` (not `'%'`) so `_formatGraphValue` doesn't round sub-1% readings down to display "0" — see that function's unit-based rounding table if you add another sub-1-precision metric.
-- **NO2/O3**: plain µg/m³ gases (WHO 2021 AQG + EU Ambient Air Quality Directive anchors), no unit-detection split. If a sensor reports ppb, override `no2_thresholds`/`o3_thresholds` (1 ppb NO2 ≈ 1.88 µg/m³, 1 ppb O3 ≈ 2.00 µg/m³) rather than adding auto-detection — not worth the complexity for two metrics.
+- **Radon**: compared in Bq/m³; `_getRadonBqm3()` converts pCi/L (×37). Auto-detect reads `radon_entity || radon_longterm_entity` (a long-term-only setup must not be mistaken for Bq/m³). `radon_unit` accepts `Bq/m³`/`Bq/m3`/`pCi/L`.
+- **Temperature**: `_isCelsius()` = `temperature_unit` config, else the entity's own unit, else `hass.config.unit_system`.
+- **tVOC / NOx**: Sensirion index (no unit) vs absolute. Missing/empty `unit_of_measurement` (or "voc index"/"nox index") → index; forceable via `tvoc_unit`/`nox_unit`. Absolute mode displays the sensor's real unit; the default ppb thresholds don't convert mass units (no single factor for a VOC mixture), so µg/m³ users override thresholds. There's no plain `nox`/`tvoc` METRIC_DEFS key — go through `_defKey()`.
+- **O₂**: %vol bell around 20.9%, safety-colored. Below `t[0]` (16%) is life-safety.
+- **Propane (C3H8)**: %vol (not %LEL), life-safety like CO; readout uses 2 decimals so sub-1% readings never show as 0.
+- **CO/HCHO/NO₂/O₃**: auto-converted via `UNIT_CONVERSIONS` (see above).
 
 ### Adding a new sensor
 
-A new sensor type touches **many places**. Use this checklist:
+1. `METRIC_DEFS` entry (with a source citation) + `_thresholdOverride` map + a thin `_getXColor()` wrapper; `UNIT_CONVERSIONS` if HA allows several units for its device class; `DEVICE_CLASS_METRIC` if it has one.
+2. `TRANSLATIONS` — new `status` labelKeys and `editor.<x>_entity` in **every** locale (`metric.<x>` if the label isn't a chemical formula).
+3. `constructor` `_history` keys (`<x>` and `outdoor_<x>` if mirrored) — the history subscription derives its entities from these.
+4. `setConfig` `indoorEntityKeys` (and `outdoorEntityKeys`/`promotionMap`).
+5. `getCardSize` `+= 1`.
+6. `GRAPH_ORDER`, `_getMetricOrder` `all`, `_metricLabel`/`GRAPH_LABELS`, `_metricUnit`, `_metricDecimals`, `_graphRange` defaults; `PRIORITY_BOOST` if life-safety.
+7. `_getRecommendationKey` / `_getOverallStatus` (`AIR` list) if it should drive them.
+8. `configForm()` — the entity picker and the `order` options.
+9. `README.md` — features, Configuration Options table, Health Thresholds (with sources).
+10. `test.js` — `expectedKeys` and color/recommendation tests.
 
-1. `METRIC_DEFS` entry (thresholds/colors/labelKeys, with a comment citing the guideline the tiers come from) + `_metricThresholds` override map + a thin `_getXColor()` wrapper.
-2. `TRANSLATIONS` — any new `status` labelKeys, plus `editor.<x>_entity`, in **every** locale (and `metric.<x>` if the label isn't a chemical formula).
-3. `constructor` — add key to `this._history = { ... }`.
-4. `setConfig` — add to `indoorEntityKeys` (and `outdoorEntityKeys`/`promotionMap` if it has an outdoor mirror).
-5. `getCardSize` — add `+= 1`.
-6. `_loadHistory` — push promise + key (outdoor mirrors go in the `outdoorSensors` list).
-7. `_getMetricOrder` `all` list, and `_getAbnormalMetrics` `labels` (plus `PRIORITY_BOOST` if it's life-safety).
-8. `_initialRender` — add `showX` flag and the conditional HTML block (status row + graph card).
-9. `_updateStates` — read state, update DOM by id.
-10. `_renderGraphs` — call `_renderGraph` with min/max/unit. `_setupGraphInteractions` — add to `graphIds`.
-11. `_getRecommendationKey` and/or `_getOverallStatus` if it should drive recs.
-12. Editor `_schema()` — the entity picker, and the `order` selector options.
-13. `README.md` — feature list and the Configuration Options table (`<x>_entity`, `<x>_thresholds`).
-14. `test.js` — the `expectedKeys` list and color/recommendation tests.
+## Previewing in a real browser
 
-The "outdoor mirror" pattern: most pollutants have an `outdoor_<x>_entity` counterpart that's plumbed through the same machinery (history key `outdoor_<x>`, dashed line in `_renderGraph`, optional input to outdoor-override logic).
-
-Unavailable sensors: `_getNumericState` returns 0 for non-numeric states. That's fine for most pollutants but wrong for bell-curve metrics (humidity, O2, pressure, temperature). Note how `_getAbnormalMetrics` uses `parseFloat` + `isFinite` instead, and how humidity defaults to 45 in the waterfall.
+The suite can't see the DOM. For visual checks, render the card in headless Chromium with a mock `hass` (states, `locale`, `connection.subscribeMessage` answering `history/stream`) and stub `ha-card`/`ha-icon` elements — keep such harnesses outside the repo (e.g. `/tmp`). Playwright's Chromium is usually cached under `~/.cache/ms-playwright`.
 
 ## Versioning and distribution
 
@@ -106,4 +102,4 @@ Unavailable sensors: `_getNumericState` returns 0 for non-numeric states. That's
 
 ## Test harness notes
 
-`test.js` mocks `HTMLElement`, `customElements`, `window`, and `document` *before* `require('./air-quality-card.js')` so the file can register itself in a Node environment. It then pulls the registered class out of `registeredElements` and instantiates it with a fake `_hass`. The editor (`air-quality-card-editor`) only registers when `customElements.get("hui-masonry-view")` returns a class — the mock provides `MockHuiView` for that. If you change the LitElement-grabbing code, update the mock accordingly.
+`test.js` mocks `HTMLElement`, `customElements`, `window`, and `document` *before* `require('./air-quality-card.js')` so the file can register itself in Node, then instantiates the registered class with a fake `_hass`. `mockConnection(subs)` fakes `hass.connection` for the history subscription (tests push stream messages through `subs[i].callback`); `makeCard(config, states)` builds a card with given entity states. `_loadHistory()` starts a 60 s interval — call `_unsubscribeHistory()` at the end of a test that subscribes. The editor is tested through `CardClass.getConfigForm()`.

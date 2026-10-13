@@ -1,5 +1,5 @@
 /**
- * Air Quality Card v2.6.0 — Unit Tests
+ * Air Quality Card — Unit Tests
  * Run with: node test.js
  *
  * Tests color functions, recommendation waterfall, config validation,
@@ -20,6 +20,20 @@ function assert(condition, message) {
 
 function section(name) {
   console.log(`\n--- ${name} ---`);
+}
+
+// Minimal hass.connection: records history/stream subscriptions and lets a
+// test push messages into them.
+function mockConnection(subs) {
+  return {
+    subscribeMessage(callback, msg) {
+      const sub = { callback, msg, unsubscribed: false };
+      subs.push(sub);
+      return Promise.resolve(() => { sub.unsubscribed = true; });
+    },
+    addEventListener() {},
+    removeEventListener() {}
+  };
 }
 
 // ============================================================
@@ -190,12 +204,12 @@ section('Temperature Decimals');
 card._config.temperature_decimals = false;
 assert(card._formatTemp(21.4) === '21', 'Rounds to whole number by default');
 assert(card._formatTemp(21.6) === '22', 'Rounds up by default');
-assert(card._formatGraphValue(21.4, '°C') === 21, 'Graph min/max rounds temperature by default');
+assert(card._formatGraphValue(21.4, 'temperature') === '21', 'Graph min/max rounds temperature by default');
 card._config.temperature_decimals = true;
 assert(card._formatTemp(21.4) === '21.4', 'Shows one decimal when enabled');
 assert(card._formatTemp(22) === '22.0', 'Pads whole number to one decimal when enabled');
-assert(card._formatGraphValue(21.4, '°C') === '21.4', 'Graph min/max shows decimal when enabled');
-assert(card._formatGraphValue(500, 'ppm') === 500, 'Non-temperature graph values stay rounded');
+assert(card._formatGraphValue(21.4, 'temperature') === '21.4', 'Graph min/max shows decimal when enabled');
+assert(card._formatGraphValue(500.4, 'co2') === '500', 'Non-temperature graph values stay rounded');
 card._config.temperature_decimals = false;
 
 // ============================================================
@@ -723,12 +737,16 @@ const flat = card._getMinMax([{ time: 1, value: 4 }, { time: 2, value: 4 }, { ti
 assert(flat.min === 4 && flat.max === 4, 'flat data: min === max');
 
 section('Graph value formatting');
-assert(card._formatGraphValue(5.4, 'ppm') === 5, 'ppm rounds');
-assert(card._formatGraphValue(5.4, 'ppb') === 5, 'ppb rounds');
-assert(card._formatGraphValue(5.4, 'Bq/m³') === 5, 'Bq/m³ rounds');
-assert(card._formatGraphValue(5.4, '°C') === 5, '°C rounds');
-assert(card._formatGraphValue(5.45, 'pCi/L') === '5.5', 'pCi/L 1 decimal (rounded)');
-assert(card._formatGraphValue(2.3, 'μg/m³') === '2.3', 'μg/m³ 1 decimal');
+// Graph labels use the metric's readout precision (formatted strings)
+assert(card._formatGraphValue(612.4, 'co2') === '612', 'CO₂ rounds');
+assert(card._formatGraphValue(5.4, 'temperature') === '5', 'temperature rounds by default');
+assert(card._formatGraphValue(2.3, 'pm25') === '2.3', 'PM2.5 1 decimal');
+assert(card._formatGraphValue(0.034, 'c3h8') === '0.03', 'propane keeps 2 decimals (sub-1% readings never show as 0)');
+assert(card._formatGraphValue(19.44, 'o2') === '19.4', 'O₂ keeps 1 decimal (19.4% must not read as 19)');
+const pciCard = new CardClass();
+pciCard.setConfig({ radon_entity: 'sensor.radon' });
+pciCard._hass = { states: { 'sensor.radon': { state: '5', attributes: { unit_of_measurement: 'pCi/L' } } }, config: { unit_system: {} } };
+assert(pciCard._formatGraphValue(5.45, 'radon') === '5.5', 'pCi/L 1 decimal (rounded)');
 
 // Default config has show_min_max: false (opt-in)
 const defaultCard = new CardClass();
@@ -1089,7 +1107,7 @@ assert(noxCard._isNOxIndex() === true, 'nox_unit value is case-insensitive');
 // µg/m³ sensors keep their real display unit (default thresholds still assume ppb)
 noxCard.setConfig({ nox_entity: 'sensor.nox' });
 noxCard._hass.states['sensor.nox'].attributes = { unit_of_measurement: 'µg/m³' };
-assert(noxCard._getNOxUnit() === 'µg/m³', 'µg/m³ sensor displays µg/m³, not ppb');
+assert(noxCard._getNOxUnit() === 'μg/m³', 'µg/m³ sensor displays μg/m³ (HA spelling), not ppb');
 
 section('NOx Index colors (Sensirion/AirGradient bands)');
 
@@ -1137,20 +1155,21 @@ pairNox.setConfig({ nox_entity: 'sensor.nox', outdoor_nox_entity: 'sensor.out_no
 assert(pairNox._outdoorOnly === false, 'indoor+outdoor NOx → normal mode');
 assert(pairNox._config.outdoor_nox_entity === 'sensor.out_nox', 'outdoor NOx kept as overlay');
 
-// _loadHistory actually fetches the outdoor NOx entity (calls to callApi are
-// issued synchronously before _loadHistory's first await)
+// _loadHistory subscribes to both the indoor and outdoor NOx entities
 const histNox = new CardClass();
 histNox.setConfig({ nox_entity: 'sensor.nox', outdoor_nox_entity: 'sensor.out_nox' });
-const histCalls = [];
+const histSubs = [];
 histNox._hass = {
   config: { unit_system: { temperature: '°F' } },
   states: { 'sensor.nox': { state: '1', attributes: {} }, 'sensor.out_nox': { state: '2', attributes: {} } },
-  callApi: async (method, uri) => { histCalls.push(uri); return [[{ last_changed: '2026-06-11T00:00:00Z', state: '5' }]]; }
+  connection: mockConnection(histSubs)
 };
 histNox._renderGraphs = () => {};
 histNox._loadHistory();
-assert(histCalls.some(u => u.includes('sensor.nox')), '_loadHistory fetches the indoor NOx entity');
-assert(histCalls.some(u => u.includes('sensor.out_nox')), '_loadHistory fetches the outdoor NOx entity');
+const histIds = histSubs.length ? histSubs[0].msg.entity_ids : [];
+assert(histIds.includes('sensor.nox'), '_loadHistory subscribes to the indoor NOx entity');
+assert(histIds.includes('sensor.out_nox'), '_loadHistory subscribes to the outdoor NOx entity');
+histNox._unsubscribeHistory();
 
 // ============================================================
 // O2, NO2, O3, PROPANE (air-Q Science support)
@@ -1282,14 +1301,16 @@ histGases._hass = {
     'sensor.no2': { state: '10' }, 'sensor.out_no2': { state: '20' },
     'sensor.o3': { state: '40' }, 'sensor.out_o3': { state: '60' }
   },
-  callApi: async (method, uri) => { gasHistCalls.push(uri); return [[{ last_changed: '2026-06-11T00:00:00Z', state: '5' }]]; }
+  connection: mockConnection(gasHistCalls)
 };
 histGases._renderGraphs = () => {};
 histGases._loadHistory();
-assert(gasHistCalls.some(u => u.includes('sensor.no2')), '_loadHistory fetches the indoor NO2 entity');
-assert(gasHistCalls.some(u => u.includes('sensor.out_no2')), '_loadHistory fetches the outdoor NO2 entity');
-assert(gasHistCalls.some(u => u.includes('sensor.o3')), '_loadHistory fetches the indoor O3 entity');
-assert(gasHistCalls.some(u => u.includes('sensor.out_o3')), '_loadHistory fetches the outdoor O3 entity');
+const gasIds = gasHistCalls.length ? gasHistCalls[0].msg.entity_ids : [];
+assert(gasIds.includes('sensor.no2'), '_loadHistory subscribes to the indoor NO2 entity');
+assert(gasIds.includes('sensor.out_no2'), '_loadHistory subscribes to the outdoor NO2 entity');
+assert(gasIds.includes('sensor.o3'), '_loadHistory subscribes to the indoor O3 entity');
+assert(gasIds.includes('sensor.out_o3'), '_loadHistory subscribes to the outdoor O3 entity');
+histGases._unsubscribeHistory();
 
 section('Alert chip priority — O2/Propane life-safety boost');
 const safetyChipCard = new CardClass();
@@ -1628,9 +1649,10 @@ assert(enCard._t('status', 'not_a_real_key') === 'not_a_real_key', 'unknown key 
 
 section('Interpolation (_ts)');
 enCard._config.language = 'en';
-assert(enCard._ts('subtitle', 'co_danger', { value: 42 }) === 'CO at 42 ppm — dangerous levels detected', 'en interpolated subtitle');
+// Subtitles take the reading with its unit, so the unit always matches the sensor
+assert(enCard._ts('subtitle', 'co_danger', { value: '42 ppm' }) === 'CO at 42 ppm — dangerous levels detected', 'en interpolated subtitle');
 enCard._config.language = 'es';
-assert(enCard._ts('subtitle', 'co_danger', { value: 42 }) === 'CO en 42 ppm — niveles peligrosos detectados', 'es interpolated subtitle');
+assert(enCard._ts('subtitle', 'co_danger', { value: '42 ppm' }) === 'CO en 42 ppm — niveles peligrosos detectados', 'es interpolated subtitle');
 
 section('Overall status reflects language');
 
@@ -1748,23 +1770,21 @@ assert(card.getCardSize() === 20, 'noise adds one more = 20');
 
 section('Editor Structure');
 
-// Card should have getConfigElement
-assert(typeof CardClass.getConfigElement === 'function', 'getConfigElement exists');
+// The editor is HA's built-in form editor: getConfigForm, no custom element
+assert(typeof CardClass.getConfigForm === 'function', 'getConfigForm exists');
+assert(CardClass.getConfigElement === undefined, 'no getConfigElement (it would take precedence over the form)');
+assert(registeredElements['air-quality-card-editor'] === undefined, 'no editor element / LitElement dependency');
 
-// Editor class should be registered
-const EditorClass = registeredElements['air-quality-card-editor'];
-assert(EditorClass !== undefined, 'Editor custom element registered');
+const form = CardClass.getConfigForm();
+const schema = form.schema;
+assert(Array.isArray(schema) && schema.length > 0, 'Editor schema exists');
+assert(typeof form.computeLabel === 'function', 'computeLabel is a function');
 
-// Test editor schema and labels
-const editor = new EditorClass();
-editor.setConfig({ co2_entity: 'sensor.co2' });
-const schema = editor._schema();
-assert(schema && schema.length > 0, 'Editor schema exists');
-assert(typeof editor._computeLabel === 'function', 'computeLabel is a function');
-
-// Check all expected labels exist
+// Every field gets a label — from the card's translations, or (for generic
+// fields) HA's own localized label, signalled by returning undefined.
+const nativeLabels = ['name', 'hours_to_show', 'tap_action', 'hold_action', 'double_tap_action'];
 const allLabels = [
-  'name', 'co2_entity', 'pm25_entity', 'humidity_entity', 'temperature_entity',
+  'co2_entity', 'pm25_entity', 'humidity_entity', 'temperature_entity',
   'radon_entity', 'radon_longterm_entity', 'co_entity', 'hcho_entity', 'tvoc_entity',
   'pm4_entity', 'nox_entity', 'pm1_entity', 'pm10_entity', 'pm03_entity',
   'o2_entity', 'no2_entity', 'o3_entity', 'c3h8_entity',
@@ -1773,34 +1793,40 @@ const allLabels = [
   'outdoor_pm1_entity', 'outdoor_pm10_entity', 'outdoor_pm03_entity', 'outdoor_nox_entity',
   'outdoor_no2_entity', 'outdoor_o3_entity',
   'pressure_entity', 'outdoor_pressure_entity', 'noise_entity',
-  'air_quality_entity', 'hours_to_show', 'temperature_unit', 'radon_unit', 'show_min_max',
-  'tvoc_unit', 'nox_unit', 'language',
-  'recommendation_action', 'compact_alerts', 'auto_expand'
+  'air_quality_entity', 'temperature_unit', 'temperature_decimals', 'radon_unit', 'show_min_max',
+  'tvoc_unit', 'nox_unit', 'language', 'y_scale', 'show_status_banner', 'order', 'display',
+  'recommendation_action', 'compact_alerts', 'auto_expand',
+  'section_additional', 'section_outdoor', 'section_advanced'
 ];
 for (const name of allLabels) {
-  const label = editor._computeLabel({ name });
-  assert(label !== name, `Label for ${name} is defined (got: "${label}")`);
+  const label = form.computeLabel({ name });
+  assert(typeof label === 'string' && label !== name, `Label for ${name} is defined (got: "${label}")`);
+}
+for (const name of nativeLabels) {
+  assert(form.computeLabel({ name }) === undefined, `${name} uses HA's native label`);
 }
 
-// Check expandable sections exist
-function findExpandable(schemaArr, title) {
-  for (const item of schemaArr) {
-    if (item.type === 'expandable' && item.title === title) return item;
-  }
-  return null;
+// Every schema field name is labelled one way or the other
+const fieldNames = [];
+(function walk(items) { for (const item of items) { if (item.schema) walk(item.schema); else fieldNames.push(item.name); } })(schema);
+for (const name of fieldNames) {
+  assert(allLabels.includes(name) || nativeLabels.includes(name), `schema field ${name} has a label`);
 }
 
-const additionalSection = findExpandable(schema, 'Additional Sensors');
-assert(additionalSection !== null, 'Additional Sensors expandable exists');
-assert(additionalSection.flatten === true, 'Additional Sensors has flatten: true');
+// Expandable sections are flattened into the top-level config
+const findExpandable = (name) => schema.find(item => item.type === 'expandable' && item.name === name);
+for (const name of ['section_additional', 'section_outdoor', 'interactions', 'section_advanced']) {
+  assert(findExpandable(name) && findExpandable(name).flatten === true, `${name} expandable exists with flatten: true`);
+}
 
-const outdoorSection = findExpandable(schema, 'Outdoor Sensors');
-assert(outdoorSection !== null, 'Outdoor Sensors expandable exists');
-assert(outdoorSection.flatten === true, 'Outdoor Sensors has flatten: true');
-
-const advancedSection = findExpandable(schema, 'Advanced');
-assert(advancedSection !== null, 'Advanced expandable exists');
-assert(advancedSection.flatten === true, 'Advanced has flatten: true');
+// Labels follow the language the card instances resolved
+const deEditorCard = new CardClass();
+deEditorCard.setConfig({ co2_entity: 'sensor.co2' });
+deEditorCard._initialRender = () => {};
+deEditorCard._updateStates = () => {};
+deEditorCard.hass = { locale: { language: 'de' }, config: { unit_system: {} }, states: {} };
+assert(form.computeLabel({ name: 'section_outdoor' }) === 'Außensensoren', 'editor labels use the card language');
+deEditorCard.hass = { locale: { language: 'en' }, config: { unit_system: {} }, states: {} };
 
 // ============================================================
 // HISTORY KEYS TEST
@@ -1819,6 +1845,202 @@ const expectedKeys = [
 ];
 for (const key of expectedKeys) {
   assert(Array.isArray(freshCard._history[key]), `History key '${key}' exists and is array`);
+}
+
+// ============================================================
+// v2.13.0 AUDIT FIXES
+// ============================================================
+
+// Fresh card with a given config and entity states ({entity_id: state | {state, attributes}}).
+function makeCard(config, states = {}, extraHass = {}) {
+  const c = new CardClass();
+  c.setConfig(config);
+  const hassStates = {};
+  for (const [id, st] of Object.entries(states)) {
+    hassStates[id] = typeof st === 'object' ? { attributes: {}, ...st } : { state: String(st), attributes: {} };
+  }
+  c._hass = { config: { unit_system: { temperature: '°C' }, time_zone: 'Asia/Tokyo' }, states: hassStates, locale: { language: 'en' }, ...extraHass };
+  return c;
+}
+
+section('Unavailable sensors read as null, never 0');
+{
+  const c = makeCard({ o2_entity: 'sensor.o2', humidity_entity: 'sensor.h', co2_entity: 'sensor.co2' },
+    { 'sensor.o2': 'unavailable', 'sensor.h': 'unknown', 'sensor.co2': '700' });
+  assert(c._getNumericState('sensor.o2') === null, 'unavailable → null');
+  assert(c._getNumericState('sensor.co2') === 700, 'numeric state parses');
+  assert(c._getRecommendationKey() === 'all_good', 'unavailable O2/humidity → no o2_danger / too_dry');
+  assert(c._getOverallStatus().status === 'Good', 'unavailable O2 does not make the header Dangerous');
+  const zero = makeCard({ pm25_entity: 'sensor.pm' }, { 'sensor.pm': '0' });
+  assert(zero._getNumericState('sensor.pm') === 0, 'a real 0 reading stays 0');
+  const dead = makeCard({ co2_entity: 'sensor.co2' }, { 'sensor.co2': 'unavailable' });
+  assert(dead._getOverallStatus().status === 'Unavailable', 'all sensors unavailable → header says so instead of Excellent');
+}
+
+section('Life-safety beats air_quality_entity in the header');
+{
+  const c = makeCard({ air_quality_entity: 'sensor.aq', co_entity: 'sensor.co' }, { 'sensor.aq': 'good', 'sensor.co': '150' });
+  assert(c._getOverallStatus().status === 'Dangerous', 'CO 150 ppm overrides an AQ entity reading "good"');
+  c._hass.states['sensor.co'].state = '2';
+  assert(c._getOverallStatus().status === 'Good', 'without a CO problem the AQ entity still drives the header');
+  const both = makeCard({ co_entity: 'sensor.co', c3h8_entity: 'sensor.p' }, { 'sensor.co': '20', 'sensor.p': '0.5' });
+  assert(both._getOverallStatus().status === 'Dangerous', 'propane danger is not masked by an earlier CO "poor"');
+}
+
+section('Custom thresholds drive header and recommendations (#59)');
+{
+  // The #59 workaround: CO in µg/m³ with thresholds in µg/m³
+  const c = makeCard({ co_entity: 'sensor.co', co_thresholds: [400, 1000, 4000, 10000] },
+    { 'sensor.co': { state: '230', attributes: { unit_of_measurement: 'µg/m³' } } });
+  assert(c._metricValue('co') === 230, 'with a threshold override the reading stays in the sensor unit');
+  assert(c._getMetricStatus('co', 230) === 'Safe', 'badge Safe');
+  assert(c._getOverallStatus().status === 'Excellent', 'header no longer "Dangerous" at 230 µg/m³');
+  assert(c._getRecommendationKey() === 'all_good', 'no CO alarm at 230 µg/m³');
+  c._hass.states['sensor.co'].state = '12000';
+  assert(c._getRecommendationKey() === 'co_danger', 'override tiers still raise CO danger');
+  const co2 = makeCard({ co2_entity: 'sensor.co2', co2_thresholds: [800, 1200, 1600, 2000] }, { 'sensor.co2': '1100' });
+  assert(co2._getRecommendationKey() === 'all_good', 'CO₂ 1100 with raised thresholds is in the Good tier → all good, not open window');
+  assert(co2._getOverallStatus().status === 'Good', 'header agrees with the CO₂ badge');
+}
+
+section('Unit conversion into threshold units');
+{
+  const c = makeCard({ co_entity: 'sensor.co', no2_entity: 'sensor.no2', o3_entity: 'sensor.o3', hcho_entity: 'sensor.hcho' }, {
+    'sensor.co': { state: '1146', attributes: { unit_of_measurement: 'μg/m³' } },
+    'sensor.no2': { state: '10', attributes: { unit_of_measurement: 'ppb' } },
+    'sensor.o3': { state: '0.05', attributes: { unit_of_measurement: 'ppm' } },
+    'sensor.hcho': { state: '0.1', attributes: { unit_of_measurement: 'mg/m3' } }
+  });
+  assert(Math.abs(c._metricValue('co') - 1) < 1e-9, 'CO 1146 μg/m³ → 1 ppm');
+  assert(Math.abs(c._metricValue('no2') - 18.82) < 1e-9, 'NO₂ 10 ppb → 18.82 μg/m³');
+  assert(Math.abs(c._metricValue('o3') - 98.15) < 1e-9, 'O₃ 0.05 ppm → 98.15 μg/m³');
+  assert(Math.abs(c._metricValue('hcho') - 81.43) < 0.01, 'HCHO 0.1 mg/m³ → ≈81 ppb (WHO guideline)');
+  assert(c._metricUnit('co') === 'ppm', 'converted CO displays ppm');
+  assert(normalizeUnitForTest('ug/m3') === 'μg/m³', 'unit spellings normalize to HA\'s μg/m³');
+}
+function normalizeUnitForTest(u) {
+  const c = makeCard({ co_entity: 'sensor.x' }, { 'sensor.x': { state: '1', attributes: { unit_of_measurement: u } } });
+  return c._gasUnit('co') === 'ppm' && c._unitFactor('co', 'sensor.x') === 1 / 1146 ? 'μg/m³' : '?';
+}
+
+section('Radon unit from a long-term-only sensor');
+{
+  const c = makeCard({ radon_longterm_entity: 'sensor.lt' }, { 'sensor.lt': { state: '4.6', attributes: { unit_of_measurement: 'pCi/L' } } });
+  assert(c._getRadonUnit() === 'pCi/L', 'long-term-only pCi/L sensor detected as pCi/L');
+  assert(c._getRadonAdvisory()?.level === 'warning', '4.6 pCi/L (170 Bq/m³) raises the EPA advisory');
+  assert(c._getOverallStatus().status === 'Fair', 'header reflects radon above the action level');
+  const c2 = makeCard({ radon_entity: 'sensor.r', radon_unit: 'Bq/m3' }, { 'sensor.r': '50' });
+  assert(c2._getRadonUnit() === 'Bq/m³', 'radon_unit "Bq/m3" (README spelling) is accepted');
+}
+
+section('Header reflects every air-quality metric, then comfort (#51)');
+{
+  const hcho = makeCard({ hcho_entity: 'sensor.hcho' }, { 'sensor.hcho': '300' });
+  assert(hcho._getOverallStatus().status === 'Poor', 'HCHO 300 ppb alone degrades the header');
+  const water = makeCard({ outdoor_temperature_entity: 'sensor.w', temperature_unit: 'C', temperature_thresholds: [20, 23, 25, 30] }, { 'sensor.w': '18.4' });
+  assert(water._getOverallStatus().status === 'Cold', 'temperature-only card shows the temperature tier, not "Excellent"');
+}
+
+section('Recommendation fixes');
+{
+  const voc = makeCard({ tvoc_entity: 'sensor.voc' }, { 'sensor.voc': { state: '480', attributes: {} } });
+  assert(voc._isVOCIndex(), 'unitless tVOC is VOC Index');
+  assert(voc._getRecommendationKey() === 'ventilate_vocs', 'VOC Index 480 recommends ventilating (fixed 500 ppb cutoff never fired)');
+  const co = makeCard({ co_entity: 'sensor.co', pm25_entity: 'sensor.pm', outdoor_pm25_entity: 'sensor.opm' }, { 'sensor.co': '20', 'sensor.pm': '30', 'sensor.opm': '80' });
+  assert(co._getRecommendationKey() === 'co_elevated', 'elevated CO beats PM and is never flipped to "keep windows closed"');
+  const out = makeCard({ co2_entity: 'sensor.co2', pm25_entity: 'sensor.pm', outdoor_pm25_entity: 'sensor.opm' }, { 'sensor.co2': '1200', 'sensor.pm': 'unavailable', 'sensor.opm': '4' });
+  assert(out._getRecommendationKey() === 'open_window', 'unavailable indoor PM2.5 does not make clean outdoor air "worse"');
+  assert(REC_SEVERITY_FOR_TEST('propane_danger') === 'critical' && REC_SEVERITY_FOR_TEST('o2_warning') === 'critical', 'gas/O₂ alarms are styled critical');
+}
+function REC_SEVERITY_FOR_TEST(key) {
+  const c = makeCard({ co2_entity: 'sensor.co2' }, { 'sensor.co2': '500' });
+  const el = () => ({ style: {}, setAttribute() {}, textContent: '' });
+  const els = { 'rec-icon': el(), 'rec-title': el(), 'rec-subtitle': el(), recommendation: el() };
+  c.shadowRoot = { getElementById: (id) => els[id] || null };
+  c._updateRecommendation(key);
+  return els['rec-icon'].style.color === 'var(--aq-very-poor)' ? 'critical' : 'other';
+}
+
+section('history/stream processing');
+{
+  const subs = [];
+  const c = makeCard({ co2_entity: 'sensor.co2', outdoor_co2_entity: 'sensor.out', hours_to_show: 1 },
+    { 'sensor.co2': '800', 'sensor.out': '420' }, { connection: mockConnection(subs) });
+  let renders = 0;
+  c._renderGraphs = () => { renders++; };
+  c._loadHistory();
+  assert(subs.length === 1 && subs[0].msg.type === 'history/stream', 'one history/stream subscription');
+  assert(subs[0].msg.entity_ids.length === 2 && subs[0].msg.no_attributes === true, 'all graphed entities, no attributes');
+  c._loadHistory();
+  assert(subs.length === 1, 'no duplicate subscription');
+  const now = Date.now() / 1000;
+  subs[0].callback({ states: { 'sensor.co2': [{ s: '600', lu: now - 7200 }, { s: 'unavailable', lu: now - 1800 }, { s: '700', lu: now - 600 }] } });
+  assert(c._historyRaw['sensor.co2'].length === 2, 'non-numeric rows are skipped');
+  subs[0].callback({ states: { 'sensor.co2': [{ s: '650', lu: now - 900 }] } });
+  assert(c._historyRaw['sensor.co2'][1].value === 650, 'out-of-order rows are sorted in');
+  c._buildHistory();
+  assert(c._history.co2[0].value === 600, 'last pre-window row kept as the left edge');
+  assert(c._history.co2[c._history.co2.length - 1].value === 800, 'series is carried to now with the current state');
+  c.setConfig({ co2_entity: 'sensor.co2' });
+  assert(subs[0].unsubscribed === undefined || c._historyUnsub === null, 'setConfig drops the subscription');
+  subs[0].callback({ states: { 'sensor.co2': [{ s: '9999', lu: now }] } });
+  assert(!(c._historyRaw['sensor.co2'] || []).some(p => p.value === 9999), 'a stale subscription cannot write into the new config');
+  c._unsubscribeHistory();
+}
+
+section('hass updates only re-render when a watched entity changes');
+{
+  const c = makeCard({ co2_entity: 'sensor.co2' }, { 'sensor.co2': '700' });
+  c._rendered = true;
+  let updates = 0;
+  c._updateStates = () => { updates++; };
+  const base = c._hass;
+  c.hass = { ...base, states: { ...base.states, 'sensor.other': { state: '1' } } };
+  assert(updates === 0, 'unrelated entity change → no DOM work');
+  c.hass = { ...c._hass, states: { ...c._hass.states, 'sensor.co2': { state: '710', attributes: {} } } };
+  assert(updates === 1, 'watched entity change → update');
+}
+
+section('Locale-aware numbers and time zone');
+{
+  const c = makeCard({ temperature_entity: 'sensor.t' }, { 'sensor.t': '21.45' }, { locale: { language: 'de', number_format: 'language', time_zone: 'server' } });
+  assert(c._formatNumber(21.45, 1) === '21,5', 'German decimal comma');
+  c._hass.locale = { language: 'de', number_format: 'comma_decimal' };
+  c._numberFormats = null;
+  assert(c._formatNumber(1234.5, 1) === '1,234.5', 'number_format comma_decimal overrides the language');
+  c._hass.locale = { language: 'en', time_zone: 'server' };
+  assert(c._timeZone() === 'Asia/Tokyo', 'time_zone "server" uses the HA server zone');
+  c._hass.locale = { language: 'en', time_zone: 'local' };
+  assert(c._timeZone() === undefined, 'time_zone "local" uses the browser zone');
+  const p = makeCard({ temperature_entity: 'sensor.t' }, { 'sensor.t': '21.456' }, { entities: { 'sensor.t': { display_precision: 2 } } });
+  assert(p._metricDecimals('temperature', 'sensor.t') === 2, 'entity display_precision is honored');
+}
+
+section('Escaping, stub config, suggestions, grid options');
+{
+  const c = makeCard({ pressure_entity: 'sensor.p' }, { 'sensor.p': { state: '1000', attributes: { unit_of_measurement: '<img src=x onerror=alert(1)>' } } });
+  assert(!c._outdoorSuffix('pressure').includes('<img') && c._metricUnit('pressure').includes('<img'), 'units are escaped before reaching innerHTML');
+  const hass = {
+    states: {
+      'sensor.a_co2': { state: '600', attributes: { device_class: 'carbon_dioxide' } },
+      'sensor.a_pm25': { state: '3', attributes: { device_class: 'pm25' } },
+      'sensor.b_temp': { state: '20', attributes: { device_class: 'temperature' } },
+      'light.x': { state: 'on', attributes: {} }
+    },
+    entities: { 'sensor.a_co2': { device_id: 'dev1' }, 'sensor.a_pm25': { device_id: 'dev1' }, 'sensor.b_temp': { device_id: 'dev2' } }
+  };
+  const stub = CardClass.getStubConfig(hass);
+  assert(stub.co2_entity === 'sensor.a_co2' && stub.pm25_entity === 'sensor.a_pm25', 'stub config uses a real air-quality device');
+  let threw = false;
+  try { new CardClass().setConfig(stub); } catch (e) { threw = true; }
+  assert(!threw, 'stub config is valid (card picker preview renders)');
+  const entry = global.window.customCards.find(e => e.type === 'air-quality-card');
+  const suggestion = entry.getEntitySuggestion(hass, 'sensor.a_co2');
+  assert(suggestion.config.type === 'custom:air-quality-card' && suggestion.config.pm25_entity === 'sensor.a_pm25', 'suggestion pulls in the device\'s other sensors');
+  assert(entry.getEntitySuggestion(hass, 'sensor.b_temp') === null, 'not suggested for a plain temperature sensor');
+  assert(entry.getEntitySuggestion(hass, 'light.x') === null, 'not suggested for non-sensors');
+  const grid = c.getGridOptions();
+  assert(grid.columns === 12 && grid.min_columns === 6, 'sections-view grid options');
 }
 
 // ============================================================

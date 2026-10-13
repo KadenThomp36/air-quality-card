@@ -1,12 +1,14 @@
 /**
- * Air Quality Card v2.12.1
+ * Air Quality Card v2.13.0
  * A custom Home Assistant card for air quality visualization
- * Thresholds based on WHO 2021 guidelines and ASHRAE standards
+ * Default thresholds anchor to WHO 2021 Air Quality Guidelines, US EPA/OSHA
+ * limits and EU air-quality directives where such guidance exists; the
+ * citations next to each metric in METRIC_DEFS say which.
  *
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.12.1';
+const CARD_VERSION = '2.13.0';
 
 // Shared color palettes for the 5-tier color scale used across metrics.
 const SCALE_AIRQUALITY = ['#4caf50', '#8bc34a', '#ffc107', '#ff9800', '#f44336']; // green → red
@@ -19,7 +21,6 @@ const SCALE_O2 = ['#f44336', '#ff9800', '#4caf50', '#ff9800', '#f44336'];
 
 // Per-metric thresholds, color scale, and status labels. Users may override
 // the thresholds via config (e.g. `co2_thresholds: [500, 700, 900, 1200]`).
-// Defaults follow WHO 2021 Air Quality Guidelines and ASHRAE standards.
 //
 // Each `defaultThresholds` array has exactly 4 ascending values defining 5
 // tiers. The corresponding `colors`/`labelKeys` arrays have exactly 5 entries.
@@ -28,47 +29,68 @@ const SCALE_O2 = ['#f44336', '#ff9800', '#4caf50', '#ff9800', '#f44336'];
 // alongside the header status. Adding a new key here requires adding it to the
 // `status` group of every locale in TRANSLATIONS below.
 const METRIC_DEFS = {
+  // CO (ppm): 9/35 are the US EPA 8-hour/1-hour NAAQS; 4 sits just above the
+  // WHO 2021 24-hour guideline (4 mg/m³ ≈ 3.5 ppm); 100 is close to the WHO
+  // 2010 indoor 15-minute guideline (100 mg/m³ ≈ 87 ppm).
   co:         { defaultThresholds: [4, 9, 35, 100],          colors: SCALE_AIRQUALITY, labelKeys: ['safe', 'low', 'moderate', 'high', 'dangerous'] },
+  // CO2 (ppm) is a ventilation proxy, not a health limit — ASHRAE 62.1 sets
+  // no CO2 limit and ASHRAE's 2025 position document says CO2 alone is not a
+  // reliable overall IAQ indicator. These are common ventilation-proxy bands.
   co2:        { defaultThresholds: [600, 800, 1000, 1500],   colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  // PM2.5/PM10 (µg/m³): WHO 2021 AQG annual/24-hour guidelines (5/15, 15/45)
+  // and interim targets (PM2.5 IT-4 25; PM10 IT-3 75, IT-1 150); 35 is the
+  // US EPA 24-hour PM2.5 NAAQS. PM1 has no guideline — it borrows the PM2.5
+  // bands (lenient, since PM1 ⊂ PM2.5). PM4 likewise has none; 25/37.5/50 are
+  // WHO's PM2.5 24-hour interim targets IT-4/3/2. PM0.3 counts are judgement.
   pm25:       { defaultThresholds: [5, 15, 25, 35],          colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
   pm10:       { defaultThresholds: [15, 45, 75, 150],        colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
   pm1:        { defaultThresholds: [5, 15, 25, 35],          colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
   pm03:       { defaultThresholds: [500, 1000, 3000, 5000],  colors: SCALE_AIRQUALITY, labelKeys: ['clean', 'good', 'moderate', 'elevated', 'poor'] },
   pm4:        { defaultThresholds: [10, 25, 37.5, 50],       colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  // HCHO (ppb): 100 matches Health Canada's 1-hour limit (123 µg/m³); WHO's
+  // 2010 30-minute guideline (0.1 mg/m³) is ≈81 ppb; 40–50 is around Health
+  // Canada's 8-hour limit (50 µg/m³ ≈ 40 ppb).
   hcho:       { defaultThresholds: [20, 50, 100, 200],       colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
-  // NO2/O3 assume µg/m³ (this device family's native unit). NO2 anchors to
-  // WHO 2021 AQG annual/24h guidelines (10/25) plus the EU Ambient Air
-  // Quality Directive's annual/hourly limits (40/200). O3 anchors to WHO
-  // 2021's peak-season/8h guidelines (60/100) plus the EU AQD's
-  // information/alert thresholds (180/240). Override via `no2_thresholds`/
-  // `o3_thresholds` if your sensor reports ppb instead (1 ppb NO2 ≈ 1.88
-  // µg/m³, 1 ppb O3 ≈ 2.00 µg/m³).
+  // NO2/O3 are compared in µg/m³; ppb/ppm readings are converted (see
+  // UNIT_CONVERSIONS). NO2 anchors to WHO 2021 AQG annual/24h guidelines
+  // (10/25) plus the EU directive 2008/50 annual/hourly limits (40/200) —
+  // the 2024/2881 recast lowers the annual limit to 20 from 2030. O3 anchors
+  // to WHO 2021's peak-season/8h guidelines (60/100) plus the EU
+  // information/alert thresholds (180/240).
   no2:        { defaultThresholds: [10, 25, 40, 200],        colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
   o3:         { defaultThresholds: [60, 100, 180, 240],       colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
   // Propane (%vol) is a combustible-gas leak hazard, not a chronic-exposure
   // pollutant — treated as life-safety (see _getOverallStatus/
-  // _getRecommendationKey), same as CO. Bands anchor to 10%/20%/50% of
-  // propane's 2.1%vol LEL (lower explosive limit) — the standard
-  // combustible-gas-detector alarm points (NFPA 715 / UL 2075 convention).
+  // _getRecommendationKey), same as CO. Bands are fractions of propane's
+  // 2.1%vol LEL (lower explosive limit): 10% LEL (0.21) is OSHA 1910.146's
+  // hazardous-atmosphere point and NIOSH's IDLH (2,100 ppm); 20%/50% LEL are
+  // common industrial-detector high alarms (UL 1484 residential gas alarms
+  // trip at ≤25% LEL). 0.05 is judgement.
   c3h8:       { defaultThresholds: [0.05, 0.21, 0.42, 1.05],  colors: SCALE_AIRQUALITY, labelKeys: ['safe', 'low', 'moderate', 'high', 'dangerous'] },
   // O2 (%vol) is a bell around the 20.9% ambient baseline, but safety-based
   // rather than comfort-based — there's no WHO/EPA ambient-O2 guideline, so
-  // this borrows OSHA's confined-space O2 safety bands: 19.5% is OSHA's
-  // oxygen-deficient threshold, 16% is OSHA's "dangerous" impairment level,
-  // 23.5% is OSHA's oxygen-enriched (fire risk) threshold. Below 16% is
-  // treated as life-safety (see _getOverallStatus/_getRecommendationKey).
+  // this borrows OSHA 1910.146's confined-space bands: below 19.5% is
+  // oxygen-deficient, above 23.5% oxygen-enriched (fire risk). 16% is where
+  // impaired thinking/coordination sets in (OSHA interpretation letters, CGA
+  // symptom tables); 25% is judgement. Below 16% is treated as life-safety
+  // (see _getOverallStatus/_getRecommendationKey).
   o2:         { defaultThresholds: [16, 19.5, 23.5, 25],      colors: SCALE_O2,         labelKeys: ['dangerous', 'low', 'normal', 'enriched', 'dangerous'] },
   // NOx, like tVOC, comes in two flavors: absolute ppb, or the Sensirion
   // SGP41 NOx Index (unitless, 1-500, baseline 1 in clean air — unlike the
   // VOC Index which centers at 100, so the tables must differ). AirGradient
   // devices report the index. ppb tiers anchor to NO₂ standards: ~WHO 2021
   // interim target 1 (20), EPA annual NAAQS (53), EPA 1-hour NAAQS (100),
-  // and the EPA AQI USG/Unhealthy breakpoint (360). Index tiers follow
-  // Sensirion's integration note / AirGradient's dashboard bands (20/150/300);
-  // the 5 splits Excellent from Good at the SGP41's ±5pt repeatability spec.
+  // and the EPA AQI USG/Unhealthy breakpoint (360). Index tiers: 20 is
+  // Sensirion's example air-purifier trigger (NOx Index info note), 5 splits
+  // Excellent from Good at the SGP41's ±5pt repeatability spec, and 150/300
+  // are judgement for "clearly elevated"/"high".
   nox_ppb:    { defaultThresholds: [20, 53, 100, 360],       colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
   nox_index:  { defaultThresholds: [5, 20, 150, 300],        colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
+  // Radon (Bq/m³): 48 ≈ the EPA US indoor average (1.3 pCi/L), 100 the WHO
+  // reference level, 148 the EPA action level (4 pCi/L), 300 WHO's upper
+  // reference level.
   radon:      { defaultThresholds: [48, 100, 148, 300],      colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'elevated', 'high', 'dangerous'] },
+  // Humidity (%): EPA mold guidance — below 60%, ideally 30–50%.
   humidity:   { defaultThresholds: [30, 40, 50, 60],         colors: SCALE_HUMIDITY,   labelKeys: ['too_dry', 'dry', 'comfortable', 'humid', 'too_humid'] },
   // Atmospheric pressure is informational (not a health hazard), so it uses a
   // bell palette with a wide green band — typical weather stays calm/green.
@@ -76,9 +98,11 @@ const METRIC_DEFS = {
   // override with `pressure_thresholds` for inHg/mmHg or a different band.
   pressure:   { defaultThresholds: [990, 1005, 1025, 1040], colors: SCALE_HUMIDITY,   labelKeys: ['low', 'slightly_low', 'normal', 'slightly_high', 'high'] },
   // Noise (dBA, #50) is a comfort/health metric, not an air pollutant, but it
-  // rounds out the home-environment picture. Tiers anchor to WHO community
-  // noise guidance: 35 dB indoor living-area guideline, 45 dB moderate,
-  // 55 dB the serious-annoyance level, 70 dB the long-term hearing-risk level.
+  // rounds out the home-environment picture. Tiers anchor to WHO's 1999
+  // Guidelines for Community Noise: 35 dB is the indoor living-area guideline,
+  // 55 dB the *outdoor* serious-annoyance level, 70 dB (24 h average) the
+  // hearing-impairment level; 45 dB is judgement. WHO's values are long-term
+  // averages, so a single loud reading is a nudge, not a diagnosis.
   noise:      { defaultThresholds: [35, 45, 55, 70],        colors: SCALE_AIRQUALITY, labelKeys: ['quiet', 'moderate', 'elevated', 'loud', 'very_loud'] },
   // tVOC and temperature defaults depend on mode/unit and are computed at call time.
   tvoc_ppb:   { defaultThresholds: [100, 300, 500, 1000],    colors: SCALE_AIRQUALITY, labelKeys: ['excellent', 'good', 'moderate', 'elevated', 'poor'] },
@@ -86,6 +110,90 @@ const METRIC_DEFS = {
   temp_c:     { defaultThresholds: [18, 20, 22, 24],         colors: SCALE_TEMPERATURE, labelKeys: ['cold', 'cool', 'comfortable', 'warm', 'hot'] },
   temp_f:     { defaultThresholds: [65, 68, 72, 76],         colors: SCALE_TEMPERATURE, labelKeys: ['cold', 'cool', 'comfortable', 'warm', 'hot'] }
 };
+
+// Graph cards in their default top-to-bottom order (`order` reflows them).
+const GRAPH_ORDER = ['co', 'radon', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'hcho', 'tvoc', 'pm4', 'nox', 'c3h8', 'o2', 'no2', 'o3', 'noise', 'humidity', 'temperature', 'pressure'];
+// Graph headings that differ from the short metric label.
+const GRAPH_LABELS = { hcho: 'HCHO / CH₂O', c3h8: 'Propane / C₃H₈' };
+
+// Banner styling per recommendation: life-safety keys must look like
+// emergencies, not like "consider ventilating".
+const REC_SEVERITY = {
+  all_good: 'good',
+  co_danger: 'critical', co_warning: 'critical', propane_danger: 'critical', propane_warning: 'critical',
+  o2_danger: 'critical', o2_warning: 'critical',
+  co_elevated: 'poor', ventilate_now: 'poor', run_air_purifier: 'poor', air_purifier_ventilate: 'poor',
+  open_window: 'poor', keep_windows_closed: 'poor', ventilate_formaldehyde: 'poor', ventilate_vocs: 'poor',
+  ventilate_no2: 'poor', ventilate_o3: 'poor', consider_air_purifier: 'poor',
+  consider_ventilating: 'moderate', too_dry: 'moderate', too_humid: 'moderate', reduce_noise: 'moderate'
+};
+
+// Header severity of each tier color (the 5-step air-quality scale, with the
+// temperature blues slotted in as mild/moderate).
+const OVERALL_SEVERITY = {
+  '#4caf50': 0, '#8bc34a': 1, '#03a9f4': 1, '#ffc107': 2, '#2196f3': 2, '#ff9800': 3, '#f44336': 4
+};
+
+// Gases Home Assistant lets sensors (and users, via entity settings) report in
+// several units — e.g. OpenWeatherMap's CO is µg/m³ (#59). Readings are
+// converted into the unit the metric's default thresholds are written in.
+// Factors assume 25 °C / 1 atm (24.45 L/mol): 1 ppb = MW / 24.45 µg/m³.
+// If the user overrides `<metric>_thresholds`, the override is taken to be in
+// the sensor's own unit and no conversion happens (that's how the #59
+// workaround was written, and silently reinterpreting it would hide alarms).
+const UNIT_CONVERSIONS = {
+  co:   { unit: 'ppm',   from: { ppm: 1, ppb: 0.001, 'mg/m³': 1 / 1.146, 'μg/m³': 1 / 1146 } },
+  hcho: { unit: 'ppb',   from: { ppb: 1, ppm: 1000, 'μg/m³': 1 / 1.228, 'mg/m³': 1000 / 1.228 } },
+  no2:  { unit: 'μg/m³', from: { 'μg/m³': 1, ppb: 1.882, ppm: 1882 } },
+  o3:   { unit: 'μg/m³', from: { 'μg/m³': 1, ppb: 1.963, ppm: 1963 } }
+};
+
+// Canonicalize the spellings sensors use for the same unit: the micro sign
+// (U+00B5) vs HA's Greek mu (U+03BC, as in homeassistant/const.py's
+// "μg/m³"), "m3" vs "m³", and case for ppm/ppb.
+function normalizeUnit(unit) {
+  if (unit === undefined || unit === null) return '';
+  let u = String(unit).trim().replace(/µ/g, 'μ').replace(/^ug\//i, 'μg/').replace(/m3$/i, 'm³');
+  if (/^pp[mb]$/i.test(u)) u = u.toLowerCase();
+  return u;
+}
+
+// Escape text bound for innerHTML. Units and names can come from integrations
+// (e.g. an MQTT discovery payload), so they're never trusted as markup.
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+// Sensor device classes the card knows how to place, for the card picker's
+// stub config and entity suggestions.
+const DEVICE_CLASS_METRIC = {
+  carbon_dioxide: 'co2', pm25: 'pm25', pm10: 'pm10', pm1: 'pm1', pm4: 'pm4',
+  carbon_monoxide: 'co', volatile_organic_compounds: 'tvoc', volatile_organic_compounds_parts: 'tvoc',
+  nitrogen_dioxide: 'no2', ozone: 'o3', radon: 'radon',
+  humidity: 'humidity', temperature: 'temperature', atmospheric_pressure: 'pressure', sound_pressure: 'noise'
+};
+// Device classes that make an entity worth suggesting this card for — the
+// comfort classes alone (temperature, humidity, …) are too broad.
+const SUGGEST_FOR = ['co2', 'pm25', 'pm10', 'pm1', 'pm4', 'co', 'tvoc', 'no2', 'o3', 'radon'];
+
+// Build a card config from the sensors on one device (or, without a device,
+// from just the given entity). Shared by getStubConfig and getEntitySuggestion.
+function configForDevice(hass, entityId) {
+  const config = { type: 'custom:air-quality-card' };
+  const deviceId = hass?.entities?.[entityId]?.device_id;
+  const candidates = deviceId
+    ? Object.keys(hass.entities).filter(id => hass.entities[id].device_id === deviceId && id.startsWith('sensor.'))
+    : [entityId];
+  for (const id of candidates.sort()) {
+    const metric = DEVICE_CLASS_METRIC[hass.states?.[id]?.attributes?.device_class];
+    if (metric && !config[`${metric}_entity`]) config[`${metric}_entity`] = id;
+  }
+  return config;
+}
+
+// Last language a card instance resolved. getConfigForm's label callback only
+// receives HA's localize function (no hass/config), so the editor borrows it.
+let editorLanguage = 'en';
 
 // Embedded translations. Spanish/French/German contributed by @b0rv3g4r4 on
 // GitHub PR #11 (with thanks). English is the baseline and the fallback for
@@ -100,7 +208,8 @@ const TRANSLATIONS = {
       too_dry: 'Too Dry', dry: 'Dry', comfortable: 'Comfortable', humid: 'Humid', too_humid: 'Too Humid',
       cold: 'Cold', cool: 'Cool', warm: 'Warm', hot: 'Hot',
       normal: 'Normal', enriched: 'Enriched', slightly_low: 'Slightly Low', slightly_high: 'Slightly High',
-      quiet: 'Quiet', loud: 'Loud', very_loud: 'Very Loud'
+      quiet: 'Quiet', loud: 'Loud', very_loud: 'Very Loud',
+      unavailable: 'Unavailable'
     },
     recommendation: {
       all_good: 'All Good', ventilate_now: 'Ventilate Now', run_air_purifier: 'Run Air Purifier',
@@ -117,46 +226,47 @@ const TRANSLATIONS = {
     },
     subtitle: {
       air_quality_healthy: 'Air quality is within healthy limits',
-      co_danger: 'CO at {value} ppm — dangerous levels detected', co_danger_unknown: 'Dangerous CO levels',
-      co_warning: 'CO at {value} ppm — open all windows immediately', co_warning_unknown: 'High CO levels',
-      co_elevated: 'CO at {value} ppm — improve ventilation', co_elevated_unknown: 'CO levels elevated',
-      propane_danger: 'Propane at {value}% — explosive levels, evacuate immediately', propane_danger_unknown: 'Dangerous propane levels',
-      propane_warning: 'Propane at {value}% — possible gas leak, ventilate now', propane_warning_unknown: 'Elevated propane levels',
-      o2_danger: 'O₂ at {value}% — dangerously low oxygen levels', o2_danger_unknown: 'Dangerously low oxygen levels',
-      o2_warning: 'O₂ at {value}% — improve ventilation', o2_warning_unknown: 'Low oxygen levels',
-      ventilate_no2: 'NO₂ at {value} µg/m³ - ventilation needed', ventilate_no2_unknown: 'NO₂ levels elevated',
-      ventilate_o3: 'O₃ at {value} µg/m³ - ventilation needed', ventilate_o3_unknown: 'O₃ levels elevated',
-      purifier_pm25: 'PM2.5 at {value} μg/m³ - filter the air',
-      purifier_pm10: 'PM10 at {value} μg/m³ - filter the air',
+      co_danger: 'CO at {value} — dangerous levels detected', co_danger_unknown: 'Dangerous CO levels',
+      co_warning: 'CO at {value} — open all windows immediately', co_warning_unknown: 'High CO levels',
+      co_elevated: 'CO at {value} — improve ventilation', co_elevated_unknown: 'CO levels elevated',
+      propane_danger: 'Propane at {value} — explosive levels, evacuate immediately', propane_danger_unknown: 'Dangerous propane levels',
+      propane_warning: 'Propane at {value} — possible gas leak, ventilate now', propane_warning_unknown: 'Elevated propane levels',
+      o2_danger: 'O₂ at {value} — dangerously low oxygen levels', o2_danger_unknown: 'Dangerously low oxygen levels',
+      o2_warning: 'O₂ at {value} — improve ventilation', o2_warning_unknown: 'Low oxygen levels',
+      ventilate_no2: 'NO₂ at {value} - ventilation needed', ventilate_no2_unknown: 'NO₂ levels elevated',
+      ventilate_o3: 'O₃ at {value} - ventilation needed', ventilate_o3_unknown: 'O₃ levels elevated',
+      purifier_pm25: 'PM2.5 at {value} - filter the air',
+      purifier_pm10: 'PM10 at {value} - filter the air',
       purifier_generic: 'Particulate levels elevated',
-      consider_purifier_pm10: 'PM10 at {value} μg/m³',
-      open_window_co2: 'CO₂ at {value} ppm - fresh air needed',
-      purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³',
-      ventilate_now_co2: 'CO₂ at {value} ppm - may affect focus',
-      ventilate_formaldehyde: 'HCHO at {value} ppb - ventilation needed',
+      consider_purifier_pm10: 'PM10 at {value}',
+      open_window_co2: 'CO₂ at {value} - fresh air needed',
+      purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}',
+      ventilate_now_co2: 'CO₂ at {value} - may affect focus',
+      ventilate_formaldehyde: 'HCHO at {value} - ventilation needed',
       ventilate_formaldehyde_unknown: 'Formaldehyde levels elevated',
-      ventilate_vocs: 'tVOC at {value} ppb - ventilation needed',
+      ventilate_vocs: 'tVOC at {value} - ventilation needed',
       ventilate_vocs_unknown: 'VOC levels elevated',
-      too_dry: 'Humidity at {value}% - consider humidifier',
-      too_humid: 'Humidity at {value}% - ventilate',
-      consider_ventilating_co2: 'CO₂ at {value} ppm',
-      consider_ventilating_pm25: 'PM2.5 at {value} μg/m³',
+      too_dry: 'Humidity at {value} - consider humidifier',
+      too_humid: 'Humidity at {value} - ventilate',
+      consider_ventilating_co2: 'CO₂ at {value}',
+      consider_ventilating_pm25: 'PM2.5 at {value}',
       consider_ventilating_generic: 'Slightly elevated levels',
-      keep_closed_outdoor_pm25_poor: 'Outdoor PM2.5 at {value} μg/m³ - poor outdoor air',
-      keep_closed_outdoor_pm25: 'Outdoor PM2.5 at {value} μg/m³ - worse than indoor',
-      keep_closed_outdoor_co2: 'Outdoor CO₂ at {value} ppm - worse than indoor',
+      keep_closed_outdoor_pm25_poor: 'Outdoor PM2.5 at {value} - poor outdoor air',
+      keep_closed_outdoor_pm25: 'Outdoor PM2.5 at {value} - worse than indoor',
+      keep_closed_outdoor_co2: 'Outdoor CO₂ at {value} - worse than indoor',
       keep_closed_generic: 'Outdoor air quality is worse than indoor',
-      reduce_noise: 'Noise at {value} dB - prolonged exposure may harm hearing', reduce_noise_unknown: 'Noise levels elevated'
+      reduce_noise: 'Noise at {value} - prolonged exposure may harm hearing', reduce_noise_unknown: 'Noise levels elevated'
     },
     radon: {
       advisory_danger: 'Radon High - Mitigation Needed',
       advisory_warning: 'Radon Above EPA Action Level',
       advisory_info: 'Radon - Monitor Closely',
-      short_term: 'Short-term', long_term: 'Long-term'
+      short_term: 'Short-term', long_term: 'Long-term',
+      subtitle_single: 'Radon at {value}', action_danger: 'contact a certified radon mitigator', action_warning: 'EPA recommends mitigation above {threshold}', action_info: 'approaching action level'
     },
     metric: { humidity: 'Humidity', temperature: 'Temperature', pressure: 'Pressure', noise: 'Noise' },
     editor: {
-      name: 'Card Name', co2_entity: 'CO₂ Sensor', pm25_entity: 'PM2.5 Sensor',
+      co2_entity: 'CO₂ Sensor', pm25_entity: 'PM2.5 Sensor',
       humidity_entity: 'Humidity Sensor', temperature_entity: 'Temperature Sensor',
       radon_entity: 'Radon Sensor', radon_longterm_entity: 'Radon Long-Term Sensor',
       co_entity: 'CO (Carbon Monoxide) Sensor', hcho_entity: 'Formaldehyde (HCHO) Sensor',
@@ -172,47 +282,53 @@ const TRANSLATIONS = {
       outdoor_pm10_entity: 'Outdoor PM10', outdoor_pm03_entity: 'Outdoor PM0.3',
       outdoor_nox_entity: 'Outdoor NOx', outdoor_pressure_entity: 'Outdoor Pressure',
       outdoor_no2_entity: 'Outdoor NO₂', outdoor_o3_entity: 'Outdoor O₃',
-      air_quality_entity: 'Air Quality Index (optional)', hours_to_show: 'Graph History',
+      air_quality_entity: 'Air Quality Index (optional)',
       temperature_unit: 'Temperature Unit', temperature_decimals: 'Show temperature with one decimal', radon_unit: 'Radon Unit',
       tvoc_unit: 'tVOC Measurement Type', nox_unit: 'NOx Measurement Type', language: 'Language',
       recommendation_action: 'Recommendation Action (button)',
       compact_alerts: 'Alert chips while collapsed',
       auto_expand: 'Auto-expand when air quality degrades',
       section_additional: 'Additional Sensors', section_outdoor: 'Outdoor Sensors',
-      section_advanced: 'Advanced'
-    }
+      section_advanced: 'Advanced',
+      show_min_max: 'Show min/max for each metric', y_scale: 'Graph Y-axis scale', show_status_banner: 'Show status banner', order: 'Sensor order', display: 'Display mode'
+    },
+    label: { outdoor: 'Outdoor', out: 'out', lt: 'LT', loading: 'Loading…' }
   },
   es: {
-    status: { excellent: 'Excelente', good: 'Bueno', moderate: 'Moderado', fair: 'Regular', poor: 'Malo', very_poor: 'Muy malo', extremely_poor: 'Extremadamente malo', dangerous: 'Peligroso', safe: 'Seguro', low: 'Bajo', high: 'Alto', elevated: 'Elevado', clean: 'Limpio', too_dry: 'Demasiado seco', dry: 'Seco', comfortable: 'Confortable', humid: 'Húmedo', too_humid: 'Demasiado húmedo', cold: 'Frío', cool: 'Fresco', warm: 'Cálido', hot: 'Caliente', normal: 'Normal', enriched: 'Enriquecido', slightly_low: 'Ligeramente baja', slightly_high: 'Ligeramente alta', quiet: 'Silencioso', loud: 'Ruidoso', very_loud: 'Muy ruidoso' },
+    status: { excellent: 'Excelente', good: 'Bueno', moderate: 'Moderado', fair: 'Regular', poor: 'Malo', very_poor: 'Muy malo', extremely_poor: 'Extremadamente malo', dangerous: 'Peligroso', safe: 'Seguro', low: 'Bajo', high: 'Alto', elevated: 'Elevado', clean: 'Limpio', too_dry: 'Demasiado seco', dry: 'Seco', comfortable: 'Confortable', humid: 'Húmedo', too_humid: 'Demasiado húmedo', cold: 'Frío', cool: 'Fresco', warm: 'Cálido', hot: 'Caliente', normal: 'Normal', enriched: 'Enriquecido', slightly_low: 'Ligeramente baja', slightly_high: 'Ligeramente alta', quiet: 'Silencioso', loud: 'Ruidoso', very_loud: 'Muy ruidoso', unavailable: 'No disponible' },
     recommendation: { all_good: 'Todo bien', ventilate_now: 'Ventila ahora', run_air_purifier: 'Enciende el purificador', consider_air_purifier: 'Plantéate usar un purificador', open_window: 'Abre la ventana', air_purifier_ventilate: 'Purificador y ventilación', co_danger: 'Peligro por CO — evacúa la zona', co_warning: 'Alerta de CO — ventila ahora', co_elevated: 'CO elevado — ventila', consider_ventilating: 'Considera ventilar', keep_windows_closed: 'Mantén las ventanas cerradas', too_dry: 'Demasiado seco', too_humid: 'Demasiado húmedo', ventilate_formaldehyde: 'Ventila — formaldehído', ventilate_vocs: 'Ventila — COV elevados', propane_danger: 'Peligro de fuga de gas — evacúa', propane_warning: 'Alerta de fuga de gas — ventila ahora', o2_danger: 'Peligro de oxígeno bajo — abandona la zona', o2_warning: 'Alerta de oxígeno bajo — ventila ahora', ventilate_no2: 'Ventila — NO₂ elevado', ventilate_o3: 'Ventila — O₃ elevado', reduce_noise: 'Reduce el nivel de ruido' },
-    subtitle: { air_quality_healthy: 'La calidad del aire está dentro de límites saludables', co_danger: 'CO en {value} ppm — niveles peligrosos detectados', co_danger_unknown: 'Niveles de CO peligrosos', co_warning: 'CO en {value} ppm — abre todas las ventanas de inmediato', co_warning_unknown: 'Niveles de CO altos', co_elevated: 'CO en {value} ppm — mejora la ventilación', co_elevated_unknown: 'Niveles de CO elevados', propane_danger: 'Propano en {value}% — niveles explosivos, evacúa de inmediato', propane_danger_unknown: 'Niveles de propano peligrosos', propane_warning: 'Propano en {value}% — posible fuga de gas, ventila ahora', propane_warning_unknown: 'Niveles de propano elevados', o2_danger: 'O₂ en {value}% — niveles de oxígeno peligrosamente bajos', o2_danger_unknown: 'Niveles de oxígeno peligrosamente bajos', o2_warning: 'O₂ en {value}% — mejora la ventilación', o2_warning_unknown: 'Niveles de oxígeno bajos', ventilate_no2: 'NO₂ en {value} µg/m³ - ventilación necesaria', ventilate_no2_unknown: 'Niveles de NO₂ elevados', ventilate_o3: 'O₃ en {value} µg/m³ - ventilación necesaria', ventilate_o3_unknown: 'Niveles de O₃ elevados', purifier_pm25: 'PM2.5 en {value} μg/m³ - filtra el aire', purifier_pm10: 'PM10 en {value} μg/m³ - filtra el aire', purifier_generic: 'Niveles elevados de partículas', consider_purifier_pm10: 'PM10 en {value} μg/m³', open_window_co2: 'CO₂ en {value} ppm - hace falta aire fresco', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ en {value} ppm - puede afectar a la concentración', ventilate_formaldehyde: 'HCHO en {value} ppb - ventilación necesaria', ventilate_formaldehyde_unknown: 'Niveles de formaldehído elevados', ventilate_vocs: 'tVOC en {value} ppb - ventilación necesaria', ventilate_vocs_unknown: 'Niveles de COV elevados', too_dry: 'Humedad en {value}% - plantéate usar un humidificador', too_humid: 'Humedad en {value}% - ventila', consider_ventilating_co2: 'CO₂ en {value} ppm', consider_ventilating_pm25: 'PM2.5 en {value} μg/m³', consider_ventilating_generic: 'Niveles ligeramente elevados', keep_closed_outdoor_pm25_poor: 'PM2.5 exterior en {value} μg/m³ - mala calidad del aire exterior', keep_closed_outdoor_pm25: 'PM2.5 exterior en {value} μg/m³ - peor que en interior', keep_closed_outdoor_co2: 'CO₂ exterior en {value} ppm - peor que en interior', keep_closed_generic: 'La calidad del aire exterior es peor que en interior', reduce_noise: 'Ruido en {value} dB - la exposición prolongada puede dañar la audición', reduce_noise_unknown: 'Niveles de ruido elevados' },
-    radon: { advisory_danger: 'Radón alto — se necesita mitigación', advisory_warning: 'Radón por encima del nivel de acción EPA', advisory_info: 'Radón — monitorear de cerca', short_term: 'Corto plazo', long_term: 'Largo plazo' },
+    subtitle: { air_quality_healthy: 'La calidad del aire está dentro de límites saludables', co_danger: 'CO en {value} — niveles peligrosos detectados', co_danger_unknown: 'Niveles de CO peligrosos', co_warning: 'CO en {value} — abre todas las ventanas de inmediato', co_warning_unknown: 'Niveles de CO altos', co_elevated: 'CO en {value} — mejora la ventilación', co_elevated_unknown: 'Niveles de CO elevados', propane_danger: 'Propano en {value} — niveles explosivos, evacúa de inmediato', propane_danger_unknown: 'Niveles de propano peligrosos', propane_warning: 'Propano en {value} — posible fuga de gas, ventila ahora', propane_warning_unknown: 'Niveles de propano elevados', o2_danger: 'O₂ en {value} — niveles de oxígeno peligrosamente bajos', o2_danger_unknown: 'Niveles de oxígeno peligrosamente bajos', o2_warning: 'O₂ en {value} — mejora la ventilación', o2_warning_unknown: 'Niveles de oxígeno bajos', ventilate_no2: 'NO₂ en {value} - ventilación necesaria', ventilate_no2_unknown: 'Niveles de NO₂ elevados', ventilate_o3: 'O₃ en {value} - ventilación necesaria', ventilate_o3_unknown: 'Niveles de O₃ elevados', purifier_pm25: 'PM2.5 en {value} - filtra el aire', purifier_pm10: 'PM10 en {value} - filtra el aire', purifier_generic: 'Niveles elevados de partículas', consider_purifier_pm10: 'PM10 en {value}', open_window_co2: 'CO₂ en {value} - hace falta aire fresco', purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}', ventilate_now_co2: 'CO₂ en {value} - puede afectar a la concentración', ventilate_formaldehyde: 'HCHO en {value} - ventilación necesaria', ventilate_formaldehyde_unknown: 'Niveles de formaldehído elevados', ventilate_vocs: 'tVOC en {value} - ventilación necesaria', ventilate_vocs_unknown: 'Niveles de COV elevados', too_dry: 'Humedad en {value} - plantéate usar un humidificador', too_humid: 'Humedad en {value} - ventila', consider_ventilating_co2: 'CO₂ en {value}', consider_ventilating_pm25: 'PM2.5 en {value}', consider_ventilating_generic: 'Niveles ligeramente elevados', keep_closed_outdoor_pm25_poor: 'PM2.5 exterior en {value} - mala calidad del aire exterior', keep_closed_outdoor_pm25: 'PM2.5 exterior en {value} - peor que en interior', keep_closed_outdoor_co2: 'CO₂ exterior en {value} - peor que en interior', keep_closed_generic: 'La calidad del aire exterior es peor que en interior', reduce_noise: 'Ruido en {value} - la exposición prolongada puede dañar la audición', reduce_noise_unknown: 'Niveles de ruido elevados' },
+    radon: { advisory_danger: 'Radón alto — se necesita mitigación', advisory_warning: 'Radón por encima del nivel de acción EPA', advisory_info: 'Radón — monitorear de cerca', short_term: 'Corto plazo', long_term: 'Largo plazo', subtitle_single: 'Radón en {value}', action_danger: 'contacta con un especialista certificado en mitigación de radón', action_warning: 'la EPA recomienda mitigar por encima de {threshold}', action_info: 'acercándose al nivel de acción' },
     metric: { humidity: 'Humedad', temperature: 'Temperatura', pressure: 'Presión', noise: 'Ruido' },
-    editor: { name: 'Nombre de la tarjeta', co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de humedad', temperature_entity: 'Sensor de temperatura', radon_entity: 'Sensor de radón', radon_longterm_entity: 'Sensor de radón (largo plazo)', co_entity: 'Sensor de CO (monóxido de carbono)', hcho_entity: 'Sensor de formaldehído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de presión atmosférica', noise_entity: 'Sensor de ruido (dB)', o2_entity: 'Sensor de oxígeno (O₂)', no2_entity: 'Sensor de dióxido de nitrógeno (NO₂)', o3_entity: 'Sensor de ozono (O₃)', c3h8_entity: 'Sensor de propano (C₃H₈)', outdoor_co2_entity: 'CO₂ exterior', outdoor_pm25_entity: 'PM2.5 exterior', outdoor_humidity_entity: 'Humedad exterior', outdoor_temperature_entity: 'Temperatura exterior', outdoor_co_entity: 'CO exterior', outdoor_hcho_entity: 'HCHO exterior', outdoor_tvoc_entity: 'tVOC exterior', outdoor_pm1_entity: 'PM1 exterior', outdoor_pm10_entity: 'PM10 exterior', outdoor_pm03_entity: 'PM0.3 exterior', outdoor_nox_entity: 'NOx exterior', outdoor_no2_entity: 'NO₂ exterior', outdoor_o3_entity: 'O₃ exterior', outdoor_pressure_entity: 'Presión exterior', air_quality_entity: 'Índice de calidad del aire (opcional)', hours_to_show: 'Historial del gráfico', temperature_unit: 'Unidad de temperatura', temperature_decimals: 'Mostrar temperatura con un decimal', radon_unit: 'Unidad de radón', tvoc_unit: 'Tipo de medición tVOC', nox_unit: 'Tipo de medición NOx', language: 'Idioma', recommendation_action: 'Acción de recomendación (botón)', compact_alerts: 'Indicadores de alerta al plegar', auto_expand: 'Expandir automáticamente si la calidad del aire empeora', section_additional: 'Sensores adicionales', section_outdoor: 'Sensores exteriores', section_advanced: 'Avanzado' }
+    editor: { co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de humedad', temperature_entity: 'Sensor de temperatura', radon_entity: 'Sensor de radón', radon_longterm_entity: 'Sensor de radón (largo plazo)', co_entity: 'Sensor de CO (monóxido de carbono)', hcho_entity: 'Sensor de formaldehído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de presión atmosférica', noise_entity: 'Sensor de ruido (dB)', o2_entity: 'Sensor de oxígeno (O₂)', no2_entity: 'Sensor de dióxido de nitrógeno (NO₂)', o3_entity: 'Sensor de ozono (O₃)', c3h8_entity: 'Sensor de propano (C₃H₈)', outdoor_co2_entity: 'CO₂ exterior', outdoor_pm25_entity: 'PM2.5 exterior', outdoor_humidity_entity: 'Humedad exterior', outdoor_temperature_entity: 'Temperatura exterior', outdoor_co_entity: 'CO exterior', outdoor_hcho_entity: 'HCHO exterior', outdoor_tvoc_entity: 'tVOC exterior', outdoor_pm1_entity: 'PM1 exterior', outdoor_pm10_entity: 'PM10 exterior', outdoor_pm03_entity: 'PM0.3 exterior', outdoor_nox_entity: 'NOx exterior', outdoor_no2_entity: 'NO₂ exterior', outdoor_o3_entity: 'O₃ exterior', outdoor_pressure_entity: 'Presión exterior', air_quality_entity: 'Índice de calidad del aire (opcional)', temperature_unit: 'Unidad de temperatura', temperature_decimals: 'Mostrar temperatura con un decimal', radon_unit: 'Unidad de radón', tvoc_unit: 'Tipo de medición tVOC', nox_unit: 'Tipo de medición NOx', language: 'Idioma', recommendation_action: 'Acción de recomendación (botón)', compact_alerts: 'Indicadores de alerta al plegar', auto_expand: 'Expandir automáticamente si la calidad del aire empeora', section_additional: 'Sensores adicionales', section_outdoor: 'Sensores exteriores', section_advanced: 'Avanzado', show_min_max: 'Mostrar mín./máx. de cada métrica', y_scale: 'Escala del eje Y', show_status_banner: 'Mostrar banner de estado', order: 'Orden de sensores', display: 'Modo de visualización' },
+    label: { outdoor: 'Exterior', out: 'ext', lt: 'LP', loading: 'Cargando…' }
   },
   fr: {
-    status: { excellent: 'Excellent', good: 'Bon', moderate: 'Modéré', fair: 'Passable', poor: 'Mauvais', very_poor: 'Très mauvais', extremely_poor: 'Extrêmement mauvais', dangerous: 'Dangereux', safe: 'Sûr', low: 'Faible', high: 'Très élevé', elevated: 'Élevé', clean: 'Propre', too_dry: 'Trop sec', dry: 'Sec', comfortable: 'Confortable', humid: 'Humide', too_humid: 'Trop humide', cold: 'Froid', cool: 'Frais', warm: 'Chaud', hot: 'Très chaud', normal: 'Normale', enriched: 'Enrichi', slightly_low: 'Légèrement basse', slightly_high: 'Légèrement haute', quiet: 'Silencieux', loud: 'Bruyant', very_loud: 'Très bruyant' },
+    status: { excellent: 'Excellent', good: 'Bon', moderate: 'Modéré', fair: 'Passable', poor: 'Mauvais', very_poor: 'Très mauvais', extremely_poor: 'Extrêmement mauvais', dangerous: 'Dangereux', safe: 'Sûr', low: 'Faible', high: 'Très élevé', elevated: 'Élevé', clean: 'Propre', too_dry: 'Trop sec', dry: 'Sec', comfortable: 'Confortable', humid: 'Humide', too_humid: 'Trop humide', cold: 'Froid', cool: 'Frais', warm: 'Chaud', hot: 'Très chaud', normal: 'Normale', enriched: 'Enrichi', slightly_low: 'Légèrement basse', slightly_high: 'Légèrement haute', quiet: 'Silencieux', loud: 'Bruyant', very_loud: 'Très bruyant', unavailable: 'Indisponible' },
     recommendation: { all_good: 'Tout va bien', ventilate_now: 'Ventiler maintenant', run_air_purifier: 'Utiliser le purificateur', consider_air_purifier: 'Envisager le purificateur', open_window: 'Ouvrir une fenêtre', air_purifier_ventilate: 'Purificateur + Ventiler', co_danger: 'Danger au CO — évacuer', co_warning: 'Alerte CO — ventiler maintenant', co_elevated: 'CO élevé — ventiler', consider_ventilating: 'Envisager de ventiler', keep_windows_closed: 'Garder les fenêtres fermées', too_dry: 'Trop sec', too_humid: 'Trop humide', ventilate_formaldehyde: 'Ventiler — Formaldéhyde', ventilate_vocs: 'Ventiler — COV élevés', propane_danger: 'Danger de fuite de gaz — évacuer', propane_warning: 'Alerte fuite de gaz — ventiler maintenant', o2_danger: "Danger d'oxygène bas — quitter la zone", o2_warning: 'Alerte oxygène bas — ventiler maintenant', ventilate_no2: 'Ventiler — NO₂ élevé', ventilate_o3: 'Ventiler — O₃ élevé', reduce_noise: 'Réduire le niveau sonore' },
-    subtitle: { air_quality_healthy: "La qualité de l'air est dans les limites saines", co_danger: 'CO à {value} ppm — niveaux dangereux détectés', co_danger_unknown: 'Niveaux de CO dangereux', co_warning: 'CO à {value} ppm — ouvrir toutes les fenêtres immédiatement', co_warning_unknown: 'Niveaux de CO élevés', co_elevated: 'CO à {value} ppm — améliorer la ventilation', co_elevated_unknown: 'Niveaux de CO élevés', propane_danger: 'Propane à {value}% — niveaux explosifs, évacuer immédiatement', propane_danger_unknown: 'Niveaux de propane dangereux', propane_warning: 'Propane à {value}% — fuite de gaz possible, ventiler maintenant', propane_warning_unknown: 'Niveaux de propane élevés', o2_danger: "O₂ à {value}% — niveaux d'oxygène dangereusement bas", o2_danger_unknown: "Niveaux d'oxygène dangereusement bas", o2_warning: 'O₂ à {value}% — améliorer la ventilation', o2_warning_unknown: "Niveaux d'oxygène bas", ventilate_no2: 'NO₂ à {value} µg/m³ - ventilation nécessaire', ventilate_no2_unknown: 'Niveaux de NO₂ élevés', ventilate_o3: 'O₃ à {value} µg/m³ - ventilation nécessaire', ventilate_o3_unknown: 'Niveaux de O₃ élevés', purifier_pm25: "PM2.5 à {value} μg/m³ - filtrer l'air", purifier_pm10: "PM10 à {value} μg/m³ - filtrer l'air", purifier_generic: 'Niveaux de particules élevés', consider_purifier_pm10: 'PM10 à {value} μg/m³', open_window_co2: 'CO₂ à {value} ppm - air frais nécessaire', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ à {value} ppm - peut affecter la concentration', ventilate_formaldehyde: 'HCHO à {value} ppb - ventilation nécessaire', ventilate_formaldehyde_unknown: 'Niveaux de formaldéhyde élevés', ventilate_vocs: 'tVOC à {value} ppb - ventilation nécessaire', ventilate_vocs_unknown: 'Niveaux de COV élevés', too_dry: 'Humidité à {value}% - utiliser un humidificateur', too_humid: 'Humidité à {value}% - ventiler', consider_ventilating_co2: 'CO₂ à {value} ppm', consider_ventilating_pm25: 'PM2.5 à {value} μg/m³', consider_ventilating_generic: 'Niveaux légèrement élevés', keep_closed_outdoor_pm25_poor: 'PM2.5 extérieur à {value} μg/m³ - mauvaise qualité extérieure', keep_closed_outdoor_pm25: "PM2.5 extérieur à {value} μg/m³ - pire qu'à l'intérieur", keep_closed_outdoor_co2: "CO₂ extérieur à {value} ppm - pire qu'à l'intérieur", keep_closed_generic: "La qualité de l'air extérieur est pire qu'à l'intérieur", reduce_noise: "Bruit à {value} dB - une exposition prolongée peut nuire à l'audition", reduce_noise_unknown: 'Niveaux de bruit élevés' },
-    radon: { advisory_danger: 'Radon élevé — mitigation nécessaire', advisory_warning: "Radon au-dessus du niveau d'action EPA", advisory_info: 'Radon — surveiller de près', short_term: 'Court terme', long_term: 'Long terme' },
+    subtitle: { air_quality_healthy: "La qualité de l'air est dans les limites saines", co_danger: 'CO à {value} — niveaux dangereux détectés', co_danger_unknown: 'Niveaux de CO dangereux', co_warning: 'CO à {value} — ouvrir toutes les fenêtres immédiatement', co_warning_unknown: 'Niveaux de CO élevés', co_elevated: 'CO à {value} — améliorer la ventilation', co_elevated_unknown: 'Niveaux de CO élevés', propane_danger: 'Propane à {value} — niveaux explosifs, évacuer immédiatement', propane_danger_unknown: 'Niveaux de propane dangereux', propane_warning: 'Propane à {value} — fuite de gaz possible, ventiler maintenant', propane_warning_unknown: 'Niveaux de propane élevés', o2_danger: "O₂ à {value} — niveaux d'oxygène dangereusement bas", o2_danger_unknown: "Niveaux d'oxygène dangereusement bas", o2_warning: 'O₂ à {value} — améliorer la ventilation', o2_warning_unknown: "Niveaux d'oxygène bas", ventilate_no2: 'NO₂ à {value} - ventilation nécessaire', ventilate_no2_unknown: 'Niveaux de NO₂ élevés', ventilate_o3: 'O₃ à {value} - ventilation nécessaire', ventilate_o3_unknown: 'Niveaux de O₃ élevés', purifier_pm25: "PM2.5 à {value} - filtrer l'air", purifier_pm10: "PM10 à {value} - filtrer l'air", purifier_generic: 'Niveaux de particules élevés', consider_purifier_pm10: 'PM10 à {value}', open_window_co2: 'CO₂ à {value} - air frais nécessaire', purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}', ventilate_now_co2: 'CO₂ à {value} - peut affecter la concentration', ventilate_formaldehyde: 'HCHO à {value} - ventilation nécessaire', ventilate_formaldehyde_unknown: 'Niveaux de formaldéhyde élevés', ventilate_vocs: 'tVOC à {value} - ventilation nécessaire', ventilate_vocs_unknown: 'Niveaux de COV élevés', too_dry: 'Humidité à {value} - utiliser un humidificateur', too_humid: 'Humidité à {value} - ventiler', consider_ventilating_co2: 'CO₂ à {value}', consider_ventilating_pm25: 'PM2.5 à {value}', consider_ventilating_generic: 'Niveaux légèrement élevés', keep_closed_outdoor_pm25_poor: 'PM2.5 extérieur à {value} - mauvaise qualité extérieure', keep_closed_outdoor_pm25: "PM2.5 extérieur à {value} - pire qu'à l'intérieur", keep_closed_outdoor_co2: "CO₂ extérieur à {value} - pire qu'à l'intérieur", keep_closed_generic: "La qualité de l'air extérieur est pire qu'à l'intérieur", reduce_noise: "Bruit à {value} - une exposition prolongée peut nuire à l'audition", reduce_noise_unknown: 'Niveaux de bruit élevés' },
+    radon: { advisory_danger: 'Radon élevé — mitigation nécessaire', advisory_warning: "Radon au-dessus du niveau d'action EPA", advisory_info: 'Radon — surveiller de près', short_term: 'Court terme', long_term: 'Long terme', subtitle_single: 'Radon à {value}', action_danger: 'contactez un spécialiste certifié de la réduction du radon', action_warning: "l'EPA recommande d'agir au-delà de {threshold}", action_info: "proche du niveau d'action" },
     metric: { humidity: 'Humidité', temperature: 'Température', pressure: 'Pression', noise: 'Bruit' },
-    editor: { name: 'Nom de la carte', co2_entity: 'Capteur CO₂', pm25_entity: 'Capteur PM2.5', humidity_entity: "Capteur d'humidité", temperature_entity: 'Capteur de température', radon_entity: 'Capteur de radon', radon_longterm_entity: 'Capteur de radon (long terme)', co_entity: 'Capteur CO (Monoxyde de carbone)', hcho_entity: 'Capteur Formaldéhyde (HCHO)', tvoc_entity: 'Capteur tVOC', pm4_entity: 'Capteur PM4', nox_entity: 'Capteur NOx', pm1_entity: 'Capteur PM1', pm10_entity: 'Capteur PM10', pm03_entity: 'Capteur PM0.3', pressure_entity: 'Capteur de pression atmosphérique', noise_entity: 'Capteur de bruit (dB)', o2_entity: 'Capteur oxygène (O₂)', no2_entity: "Capteur dioxyde d'azote (NO₂)", o3_entity: 'Capteur ozone (O₃)', c3h8_entity: 'Capteur propane (C₃H₈)', outdoor_co2_entity: 'CO₂ extérieur', outdoor_pm25_entity: 'PM2.5 extérieur', outdoor_humidity_entity: 'Humidité extérieure', outdoor_temperature_entity: 'Température extérieure', outdoor_co_entity: 'CO extérieur', outdoor_hcho_entity: 'HCHO extérieur', outdoor_tvoc_entity: 'tVOC extérieur', outdoor_pm1_entity: 'PM1 extérieur', outdoor_pm10_entity: 'PM10 extérieur', outdoor_pm03_entity: 'PM0.3 extérieur', outdoor_nox_entity: 'NOx extérieur', outdoor_no2_entity: 'NO₂ extérieur', outdoor_o3_entity: 'O₃ extérieur', outdoor_pressure_entity: 'Pression extérieure', air_quality_entity: "Indice de qualité de l'air (optionnel)", hours_to_show: 'Historique du graphique', temperature_unit: 'Unité de température', temperature_decimals: 'Afficher la température avec une décimale', radon_unit: 'Unité de radon', tvoc_unit: 'Type de mesure tVOC', nox_unit: 'Type de mesure NOx', language: 'Langue', recommendation_action: 'Action de recommandation (bouton)', compact_alerts: 'Badges d\'alerte en mode replié', auto_expand: 'Déplier automatiquement si la qualité de l\'air se dégrade', section_additional: 'Capteurs supplémentaires', section_outdoor: 'Capteurs extérieurs', section_advanced: 'Avancé' }
+    editor: { co2_entity: 'Capteur CO₂', pm25_entity: 'Capteur PM2.5', humidity_entity: "Capteur d'humidité", temperature_entity: 'Capteur de température', radon_entity: 'Capteur de radon', radon_longterm_entity: 'Capteur de radon (long terme)', co_entity: 'Capteur CO (Monoxyde de carbone)', hcho_entity: 'Capteur Formaldéhyde (HCHO)', tvoc_entity: 'Capteur tVOC', pm4_entity: 'Capteur PM4', nox_entity: 'Capteur NOx', pm1_entity: 'Capteur PM1', pm10_entity: 'Capteur PM10', pm03_entity: 'Capteur PM0.3', pressure_entity: 'Capteur de pression atmosphérique', noise_entity: 'Capteur de bruit (dB)', o2_entity: 'Capteur oxygène (O₂)', no2_entity: "Capteur dioxyde d'azote (NO₂)", o3_entity: 'Capteur ozone (O₃)', c3h8_entity: 'Capteur propane (C₃H₈)', outdoor_co2_entity: 'CO₂ extérieur', outdoor_pm25_entity: 'PM2.5 extérieur', outdoor_humidity_entity: 'Humidité extérieure', outdoor_temperature_entity: 'Température extérieure', outdoor_co_entity: 'CO extérieur', outdoor_hcho_entity: 'HCHO extérieur', outdoor_tvoc_entity: 'tVOC extérieur', outdoor_pm1_entity: 'PM1 extérieur', outdoor_pm10_entity: 'PM10 extérieur', outdoor_pm03_entity: 'PM0.3 extérieur', outdoor_nox_entity: 'NOx extérieur', outdoor_no2_entity: 'NO₂ extérieur', outdoor_o3_entity: 'O₃ extérieur', outdoor_pressure_entity: 'Pression extérieure', air_quality_entity: "Indice de qualité de l'air (optionnel)", temperature_unit: 'Unité de température', temperature_decimals: 'Afficher la température avec une décimale', radon_unit: 'Unité de radon', tvoc_unit: 'Type de mesure tVOC', nox_unit: 'Type de mesure NOx', language: 'Langue', recommendation_action: 'Action de recommandation (bouton)', compact_alerts: 'Badges d\'alerte en mode replié', auto_expand: 'Déplier automatiquement si la qualité de l\'air se dégrade', section_additional: 'Capteurs supplémentaires', section_outdoor: 'Capteurs extérieurs', section_advanced: 'Avancé', show_min_max: 'Afficher min/max pour chaque mesure', y_scale: "Échelle de l'axe Y", show_status_banner: 'Afficher la bannière de statut', order: 'Ordre des capteurs', display: "Mode d'affichage" },
+    label: { outdoor: 'Extérieur', out: 'ext', lt: 'LT', loading: 'Chargement…' }
   },
   de: {
-    status: { excellent: 'Ausgezeichnet', good: 'Gut', moderate: 'Mäßig', fair: 'Akzeptabel', poor: 'Schlecht', very_poor: 'Sehr schlecht', extremely_poor: 'Extrem schlecht', dangerous: 'Gefährlich', safe: 'Sicher', low: 'Niedrig', high: 'Hoch', elevated: 'Erhöht', clean: 'Sauber', too_dry: 'Zu trocken', dry: 'Trocken', comfortable: 'Angenehm', humid: 'Feucht', too_humid: 'Zu feucht', cold: 'Kalt', cool: 'Kühl', warm: 'Warm', hot: 'Heiß', normal: 'Normal', enriched: 'Angereichert', slightly_low: 'Leicht niedrig', slightly_high: 'Leicht hoch', quiet: 'Leise', loud: 'Laut', very_loud: 'Sehr laut' },
+    status: { excellent: 'Ausgezeichnet', good: 'Gut', moderate: 'Mäßig', fair: 'Akzeptabel', poor: 'Schlecht', very_poor: 'Sehr schlecht', extremely_poor: 'Extrem schlecht', dangerous: 'Gefährlich', safe: 'Sicher', low: 'Niedrig', high: 'Hoch', elevated: 'Erhöht', clean: 'Sauber', too_dry: 'Zu trocken', dry: 'Trocken', comfortable: 'Angenehm', humid: 'Feucht', too_humid: 'Zu feucht', cold: 'Kalt', cool: 'Kühl', warm: 'Warm', hot: 'Heiß', normal: 'Normal', enriched: 'Angereichert', slightly_low: 'Leicht niedrig', slightly_high: 'Leicht hoch', quiet: 'Leise', loud: 'Laut', very_loud: 'Sehr laut', unavailable: 'Nicht verfügbar' },
     recommendation: { all_good: 'Alles gut', ventilate_now: 'Jetzt lüften', run_air_purifier: 'Luftreiniger einschalten', consider_air_purifier: 'Luftreiniger erwägen', open_window: 'Fenster öffnen', air_purifier_ventilate: 'Luftreiniger + Lüften', co_danger: 'CO-Gefahr — Bereich verlassen', co_warning: 'CO-Warnung — Sofort lüften', co_elevated: 'CO erhöht — Lüften', consider_ventilating: 'Lüften erwägen', keep_windows_closed: 'Fenster geschlossen halten', too_dry: 'Zu trocken', too_humid: 'Zu feucht', ventilate_formaldehyde: 'Lüften — Formaldehyd', ventilate_vocs: 'Lüften — VOC erhöht', propane_danger: 'Gasleck-Gefahr — Evakuieren', propane_warning: 'Gasleck-Warnung — Sofort lüften', o2_danger: 'Sauerstoffmangel-Gefahr — Bereich verlassen', o2_warning: 'Sauerstoffmangel-Warnung — Sofort lüften', ventilate_no2: 'Lüften — NO₂ erhöht', ventilate_o3: 'Lüften — O₃ erhöht', reduce_noise: 'Lärmpegel senken' },
-    subtitle: { air_quality_healthy: 'Luftqualität liegt innerhalb gesunder Grenzen', co_danger: 'CO bei {value} ppm — gefährliche Werte erkannt', co_danger_unknown: 'Gefährliche CO-Werte', co_warning: 'CO bei {value} ppm — alle Fenster sofort öffnen', co_warning_unknown: 'Hohe CO-Werte', co_elevated: 'CO bei {value} ppm — Belüftung verbessern', co_elevated_unknown: 'CO-Werte erhöht', propane_danger: 'Propan bei {value}% — explosive Werte, sofort evakuieren', propane_danger_unknown: 'Gefährliche Propanwerte', propane_warning: 'Propan bei {value}% — mögliches Gasleck, sofort lüften', propane_warning_unknown: 'Erhöhte Propanwerte', o2_danger: 'O₂ bei {value}% — gefährlich niedriger Sauerstoffgehalt', o2_danger_unknown: 'Gefährlich niedriger Sauerstoffgehalt', o2_warning: 'O₂ bei {value}% — Belüftung verbessern', o2_warning_unknown: 'Niedriger Sauerstoffgehalt', ventilate_no2: 'NO₂ bei {value} µg/m³ - Lüftung erforderlich', ventilate_no2_unknown: 'NO₂-Werte erhöht', ventilate_o3: 'O₃ bei {value} µg/m³ - Lüftung erforderlich', ventilate_o3_unknown: 'O₃-Werte erhöht', purifier_pm25: 'PM2.5 bei {value} μg/m³ - Luft filtern', purifier_pm10: 'PM10 bei {value} μg/m³ - Luft filtern', purifier_generic: 'Partikelwerte erhöht', consider_purifier_pm10: 'PM10 bei {value} μg/m³', open_window_co2: 'CO₂ bei {value} ppm - Frischluft benötigt', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ bei {value} ppm - kann Konzentration beeinträchtigen', ventilate_formaldehyde: 'HCHO bei {value} ppb - Lüftung erforderlich', ventilate_formaldehyde_unknown: 'Formaldehydwerte erhöht', ventilate_vocs: 'tVOC bei {value} ppb - Lüftung erforderlich', ventilate_vocs_unknown: 'VOC-Werte erhöht', too_dry: 'Luftfeuchtigkeit bei {value}% - Luftbefeuchter empfohlen', too_humid: 'Luftfeuchtigkeit bei {value}% - Lüften', consider_ventilating_co2: 'CO₂ bei {value} ppm', consider_ventilating_pm25: 'PM2.5 bei {value} μg/m³', consider_ventilating_generic: 'Leicht erhöhte Werte', keep_closed_outdoor_pm25_poor: 'Außen PM2.5 bei {value} μg/m³ - schlechte Außenluft', keep_closed_outdoor_pm25: 'Außen PM2.5 bei {value} μg/m³ - schlechter als innen', keep_closed_outdoor_co2: 'Außen CO₂ bei {value} ppm - schlechter als innen', keep_closed_generic: 'Außenluft ist schlechter als Innenluft', reduce_noise: 'Lärm bei {value} dB - dauerhafte Belastung kann das Gehör schädigen', reduce_noise_unknown: 'Lärmpegel erhöht' },
-    radon: { advisory_danger: 'Radon hoch — Minderung erforderlich', advisory_warning: 'Radon über EPA-Eingreifrichtwert', advisory_info: 'Radon — genau beobachten', short_term: 'Kurzfristig', long_term: 'Langfristig' },
+    subtitle: { air_quality_healthy: 'Luftqualität liegt innerhalb gesunder Grenzen', co_danger: 'CO bei {value} — gefährliche Werte erkannt', co_danger_unknown: 'Gefährliche CO-Werte', co_warning: 'CO bei {value} — alle Fenster sofort öffnen', co_warning_unknown: 'Hohe CO-Werte', co_elevated: 'CO bei {value} — Belüftung verbessern', co_elevated_unknown: 'CO-Werte erhöht', propane_danger: 'Propan bei {value} — explosive Werte, sofort evakuieren', propane_danger_unknown: 'Gefährliche Propanwerte', propane_warning: 'Propan bei {value} — mögliches Gasleck, sofort lüften', propane_warning_unknown: 'Erhöhte Propanwerte', o2_danger: 'O₂ bei {value} — gefährlich niedriger Sauerstoffgehalt', o2_danger_unknown: 'Gefährlich niedriger Sauerstoffgehalt', o2_warning: 'O₂ bei {value} — Belüftung verbessern', o2_warning_unknown: 'Niedriger Sauerstoffgehalt', ventilate_no2: 'NO₂ bei {value} - Lüftung erforderlich', ventilate_no2_unknown: 'NO₂-Werte erhöht', ventilate_o3: 'O₃ bei {value} - Lüftung erforderlich', ventilate_o3_unknown: 'O₃-Werte erhöht', purifier_pm25: 'PM2.5 bei {value} - Luft filtern', purifier_pm10: 'PM10 bei {value} - Luft filtern', purifier_generic: 'Partikelwerte erhöht', consider_purifier_pm10: 'PM10 bei {value}', open_window_co2: 'CO₂ bei {value} - Frischluft benötigt', purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}', ventilate_now_co2: 'CO₂ bei {value} - kann Konzentration beeinträchtigen', ventilate_formaldehyde: 'HCHO bei {value} - Lüftung erforderlich', ventilate_formaldehyde_unknown: 'Formaldehydwerte erhöht', ventilate_vocs: 'tVOC bei {value} - Lüftung erforderlich', ventilate_vocs_unknown: 'VOC-Werte erhöht', too_dry: 'Luftfeuchtigkeit bei {value} - Luftbefeuchter empfohlen', too_humid: 'Luftfeuchtigkeit bei {value} - Lüften', consider_ventilating_co2: 'CO₂ bei {value}', consider_ventilating_pm25: 'PM2.5 bei {value}', consider_ventilating_generic: 'Leicht erhöhte Werte', keep_closed_outdoor_pm25_poor: 'Außen PM2.5 bei {value} - schlechte Außenluft', keep_closed_outdoor_pm25: 'Außen PM2.5 bei {value} - schlechter als innen', keep_closed_outdoor_co2: 'Außen CO₂ bei {value} - schlechter als innen', keep_closed_generic: 'Außenluft ist schlechter als Innenluft', reduce_noise: 'Lärm bei {value} - dauerhafte Belastung kann das Gehör schädigen', reduce_noise_unknown: 'Lärmpegel erhöht' },
+    radon: { advisory_danger: 'Radon hoch — Minderung erforderlich', advisory_warning: 'Radon über EPA-Eingreifrichtwert', advisory_info: 'Radon — genau beobachten', short_term: 'Kurzfristig', long_term: 'Langfristig', subtitle_single: 'Radon bei {value}', action_danger: 'zertifizierte Radon-Fachkraft hinzuziehen', action_warning: 'EPA empfiehlt Minderung ab {threshold}', action_info: 'nähert sich dem Eingreifrichtwert' },
     metric: { humidity: 'Feuchtigkeit', temperature: 'Temperatur', pressure: 'Luftdruck', noise: 'Lärm' },
-    editor: { name: 'Kartenname', co2_entity: 'CO₂-Sensor', pm25_entity: 'PM2.5-Sensor', humidity_entity: 'Feuchtigkeitssensor', temperature_entity: 'Temperatursensor', radon_entity: 'Radon-Sensor', radon_longterm_entity: 'Radon-Sensor (Langzeit)', co_entity: 'CO-Sensor (Kohlenmonoxid)', hcho_entity: 'Formaldehyd-Sensor (HCHO)', tvoc_entity: 'tVOC-Sensor', pm4_entity: 'PM4-Sensor', nox_entity: 'NOx-Sensor', pm1_entity: 'PM1-Sensor', pm10_entity: 'PM10-Sensor', pm03_entity: 'PM0.3-Sensor', pressure_entity: 'Luftdrucksensor', noise_entity: 'Lärmsensor (dB)', o2_entity: 'Sauerstoff-Sensor (O₂)', no2_entity: 'Stickstoffdioxid-Sensor (NO₂)', o3_entity: 'Ozon-Sensor (O₃)', c3h8_entity: 'Propan-Sensor (C₃H₈)', outdoor_co2_entity: 'Außen CO₂', outdoor_pm25_entity: 'Außen PM2.5', outdoor_humidity_entity: 'Außen Luftfeuchtigkeit', outdoor_temperature_entity: 'Außen Temperatur', outdoor_co_entity: 'Außen CO', outdoor_hcho_entity: 'Außen HCHO', outdoor_tvoc_entity: 'Außen tVOC', outdoor_pm1_entity: 'Außen PM1', outdoor_pm10_entity: 'Außen PM10', outdoor_pm03_entity: 'Außen PM0.3', outdoor_nox_entity: 'Außen NOx', outdoor_no2_entity: 'Außen NO₂', outdoor_o3_entity: 'Außen O₃', outdoor_pressure_entity: 'Außen Luftdruck', air_quality_entity: 'Luftqualitätsindex (optional)', hours_to_show: 'Diagrammverlauf', temperature_unit: 'Temperatureinheit', temperature_decimals: 'Temperatur mit einer Dezimalstelle anzeigen', radon_unit: 'Radon-Einheit', tvoc_unit: 'tVOC-Messtyp', nox_unit: 'NOx-Messtyp', language: 'Sprache', recommendation_action: 'Empfehlungsaktion (Schaltfläche)', compact_alerts: 'Warnhinweise im eingeklappten Zustand', auto_expand: 'Automatisch ausklappen bei schlechter Luftqualität', section_additional: 'Weitere Sensoren', section_outdoor: 'Außensensoren', section_advanced: 'Erweitert' }
+    editor: { co2_entity: 'CO₂-Sensor', pm25_entity: 'PM2.5-Sensor', humidity_entity: 'Feuchtigkeitssensor', temperature_entity: 'Temperatursensor', radon_entity: 'Radon-Sensor', radon_longterm_entity: 'Radon-Sensor (Langzeit)', co_entity: 'CO-Sensor (Kohlenmonoxid)', hcho_entity: 'Formaldehyd-Sensor (HCHO)', tvoc_entity: 'tVOC-Sensor', pm4_entity: 'PM4-Sensor', nox_entity: 'NOx-Sensor', pm1_entity: 'PM1-Sensor', pm10_entity: 'PM10-Sensor', pm03_entity: 'PM0.3-Sensor', pressure_entity: 'Luftdrucksensor', noise_entity: 'Lärmsensor (dB)', o2_entity: 'Sauerstoff-Sensor (O₂)', no2_entity: 'Stickstoffdioxid-Sensor (NO₂)', o3_entity: 'Ozon-Sensor (O₃)', c3h8_entity: 'Propan-Sensor (C₃H₈)', outdoor_co2_entity: 'Außen CO₂', outdoor_pm25_entity: 'Außen PM2.5', outdoor_humidity_entity: 'Außen Luftfeuchtigkeit', outdoor_temperature_entity: 'Außen Temperatur', outdoor_co_entity: 'Außen CO', outdoor_hcho_entity: 'Außen HCHO', outdoor_tvoc_entity: 'Außen tVOC', outdoor_pm1_entity: 'Außen PM1', outdoor_pm10_entity: 'Außen PM10', outdoor_pm03_entity: 'Außen PM0.3', outdoor_nox_entity: 'Außen NOx', outdoor_no2_entity: 'Außen NO₂', outdoor_o3_entity: 'Außen O₃', outdoor_pressure_entity: 'Außen Luftdruck', air_quality_entity: 'Luftqualitätsindex (optional)', temperature_unit: 'Temperatureinheit', temperature_decimals: 'Temperatur mit einer Dezimalstelle anzeigen', radon_unit: 'Radon-Einheit', tvoc_unit: 'tVOC-Messtyp', nox_unit: 'NOx-Messtyp', language: 'Sprache', recommendation_action: 'Empfehlungsaktion (Schaltfläche)', compact_alerts: 'Warnhinweise im eingeklappten Zustand', auto_expand: 'Automatisch ausklappen bei schlechter Luftqualität', section_additional: 'Weitere Sensoren', section_outdoor: 'Außensensoren', section_advanced: 'Erweitert', show_min_max: 'Min/Max je Messwert anzeigen', y_scale: 'Y-Achsen-Skalierung', show_status_banner: 'Statusbanner anzeigen', order: 'Sensor-Reihenfolge', display: 'Anzeigemodus' },
+    label: { outdoor: 'Außen', out: 'außen', lt: 'LZ', loading: 'Wird geladen…' }
   },
   pt: {
-    status: { excellent: 'Excelente', good: 'Bom', moderate: 'Moderado', fair: 'Regular', poor: 'Ruim', very_poor: 'Muito Ruim', extremely_poor: 'Extremamente Ruim', dangerous: 'Perigoso', safe: 'Seguro', low: 'Baixo', high: 'Alto', elevated: 'Elevado', clean: 'Limpo', too_dry: 'Muito Seco', dry: 'Seco', comfortable: 'Confortável', humid: 'Úmido', too_humid: 'Muito Úmido', cold: 'Frio', cool: 'Fresco', warm: 'Morno', hot: 'Quente', normal: 'Normal', enriched: 'Enriquecido', slightly_low: 'Levemente baixa', slightly_high: 'Levemente alta', quiet: 'Silencioso', loud: 'Barulhento', very_loud: 'Muito Barulhento' },
+    status: { excellent: 'Excelente', good: 'Bom', moderate: 'Moderado', fair: 'Regular', poor: 'Ruim', very_poor: 'Muito Ruim', extremely_poor: 'Extremamente Ruim', dangerous: 'Perigoso', safe: 'Seguro', low: 'Baixo', high: 'Alto', elevated: 'Elevado', clean: 'Limpo', too_dry: 'Muito Seco', dry: 'Seco', comfortable: 'Confortável', humid: 'Úmido', too_humid: 'Muito Úmido', cold: 'Frio', cool: 'Fresco', warm: 'Morno', hot: 'Quente', normal: 'Normal', enriched: 'Enriquecido', slightly_low: 'Levemente baixa', slightly_high: 'Levemente alta', quiet: 'Silencioso', loud: 'Barulhento', very_loud: 'Muito Barulhento', unavailable: 'Indisponível' },
     recommendation: { all_good: 'Tudo Bem', ventilate_now: 'Ventile Agora', run_air_purifier: 'Ligar o Purificador', consider_air_purifier: 'Considere um Purificador', open_window: 'Abra a Janela', air_purifier_ventilate: 'Purificador + Ventilação', co_danger: 'Perigo de CO — Saia do Ambiente', co_warning: 'Alerta de CO — Ventile Agora', co_elevated: 'CO Elevado — Ventile', consider_ventilating: 'Considere Ventilar', keep_windows_closed: 'Mantenha as Janelas Fechadas', too_dry: 'Muito Seco', too_humid: 'Muito Úmido', ventilate_formaldehyde: 'Ventile — Formaldeído', ventilate_vocs: 'Ventile — COVs Elevados', propane_danger: 'Perigo de Vazamento de Gás — Evacue', propane_warning: 'Alerta de Vazamento de Gás — Ventile Agora', o2_danger: 'Perigo de Oxigênio Baixo — Saia do Ambiente', o2_warning: 'Alerta de Oxigênio Baixo — Ventile Agora', ventilate_no2: 'Ventile — NO₂ Elevado', ventilate_o3: 'Ventile — O₃ Elevado', reduce_noise: 'Reduza o Nível de Ruído' },
-    subtitle: { air_quality_healthy: 'A qualidade do ar está dentro dos limites saudáveis', co_danger: 'CO em {value} ppm — níveis perigosos detectados', co_danger_unknown: 'Níveis perigosos de CO', co_warning: 'CO em {value} ppm — abra todas as janelas imediatamente', co_warning_unknown: 'Níveis altos de CO', co_elevated: 'CO em {value} ppm — melhore a ventilação', co_elevated_unknown: 'Níveis de CO elevados', propane_danger: 'Propano em {value}% — níveis explosivos, evacue imediatamente', propane_danger_unknown: 'Níveis perigosos de propano', propane_warning: 'Propano em {value}% — possível vazamento de gás, ventile agora', propane_warning_unknown: 'Níveis de propano elevados', o2_danger: 'O₂ em {value}% — níveis de oxigênio perigosamente baixos', o2_danger_unknown: 'Níveis de oxigênio perigosamente baixos', o2_warning: 'O₂ em {value}% — melhore a ventilação', o2_warning_unknown: 'Níveis de oxigênio baixos', ventilate_no2: 'NO₂ em {value} µg/m³ - ventilação necessária', ventilate_no2_unknown: 'Níveis de NO₂ elevados', ventilate_o3: 'O₃ em {value} µg/m³ - ventilação necessária', ventilate_o3_unknown: 'Níveis de O₃ elevados', purifier_pm25: 'PM2.5 em {value} μg/m³ - filtre o ar', purifier_pm10: 'PM10 em {value} μg/m³ - filtre o ar', purifier_generic: 'Níveis de partículas elevados', consider_purifier_pm10: 'PM10 em {value} μg/m³', open_window_co2: 'CO₂ em {value} ppm - ar fresco necessário', purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³', ventilate_now_co2: 'CO₂ em {value} ppm - pode afetar a concentração', ventilate_formaldehyde: 'HCHO em {value} ppb - ventilação necessária', ventilate_formaldehyde_unknown: 'Níveis de formaldeído elevados', ventilate_vocs: 'tVOC em {value} ppb - ventilação necessária', ventilate_vocs_unknown: 'Níveis de COVs elevados', too_dry: 'Umidade em {value}% - considere um umidificador', too_humid: 'Umidade em {value}% - ventile', consider_ventilating_co2: 'CO₂ em {value} ppm', consider_ventilating_pm25: 'PM2.5 em {value} μg/m³', consider_ventilating_generic: 'Níveis levemente elevados', keep_closed_outdoor_pm25_poor: 'PM2.5 externo em {value} μg/m³ - ar externo de má qualidade', keep_closed_outdoor_pm25: 'PM2.5 externo em {value} μg/m³ - pior que o ar interno', keep_closed_outdoor_co2: 'CO₂ externo em {value} ppm - pior que o ar interno', keep_closed_generic: 'A qualidade do ar externo é pior que o interno', reduce_noise: 'Ruído em {value} dB - exposição prolongada pode prejudicar a audição', reduce_noise_unknown: 'Níveis de ruído elevados' },
-    radon: { advisory_danger: 'Radônio Alto — Mitigação Necessária', advisory_warning: 'Radônio Acima do Nível de Ação da EPA', advisory_info: 'Radônio — Monitorar de Perto', short_term: 'Curto prazo', long_term: 'Longo prazo' },
+    subtitle: { air_quality_healthy: 'A qualidade do ar está dentro dos limites saudáveis', co_danger: 'CO em {value} — níveis perigosos detectados', co_danger_unknown: 'Níveis perigosos de CO', co_warning: 'CO em {value} — abra todas as janelas imediatamente', co_warning_unknown: 'Níveis altos de CO', co_elevated: 'CO em {value} — melhore a ventilação', co_elevated_unknown: 'Níveis de CO elevados', propane_danger: 'Propano em {value} — níveis explosivos, evacue imediatamente', propane_danger_unknown: 'Níveis perigosos de propano', propane_warning: 'Propano em {value} — possível vazamento de gás, ventile agora', propane_warning_unknown: 'Níveis de propano elevados', o2_danger: 'O₂ em {value} — níveis de oxigênio perigosamente baixos', o2_danger_unknown: 'Níveis de oxigênio perigosamente baixos', o2_warning: 'O₂ em {value} — melhore a ventilação', o2_warning_unknown: 'Níveis de oxigênio baixos', ventilate_no2: 'NO₂ em {value} - ventilação necessária', ventilate_no2_unknown: 'Níveis de NO₂ elevados', ventilate_o3: 'O₃ em {value} - ventilação necessária', ventilate_o3_unknown: 'Níveis de O₃ elevados', purifier_pm25: 'PM2.5 em {value} - filtre o ar', purifier_pm10: 'PM10 em {value} - filtre o ar', purifier_generic: 'Níveis de partículas elevados', consider_purifier_pm10: 'PM10 em {value}', open_window_co2: 'CO₂ em {value} - ar fresco necessário', purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}', ventilate_now_co2: 'CO₂ em {value} - pode afetar a concentração', ventilate_formaldehyde: 'HCHO em {value} - ventilação necessária', ventilate_formaldehyde_unknown: 'Níveis de formaldeído elevados', ventilate_vocs: 'tVOC em {value} - ventilação necessária', ventilate_vocs_unknown: 'Níveis de COVs elevados', too_dry: 'Umidade em {value} - considere um umidificador', too_humid: 'Umidade em {value} - ventile', consider_ventilating_co2: 'CO₂ em {value}', consider_ventilating_pm25: 'PM2.5 em {value}', consider_ventilating_generic: 'Níveis levemente elevados', keep_closed_outdoor_pm25_poor: 'PM2.5 externo em {value} - ar externo de má qualidade', keep_closed_outdoor_pm25: 'PM2.5 externo em {value} - pior que o ar interno', keep_closed_outdoor_co2: 'CO₂ externo em {value} - pior que o ar interno', keep_closed_generic: 'A qualidade do ar externo é pior que o interno', reduce_noise: 'Ruído em {value} - exposição prolongada pode prejudicar a audição', reduce_noise_unknown: 'Níveis de ruído elevados' },
+    radon: { advisory_danger: 'Radônio Alto — Mitigação Necessária', advisory_warning: 'Radônio Acima do Nível de Ação da EPA', advisory_info: 'Radônio — Monitorar de Perto', short_term: 'Curto prazo', long_term: 'Longo prazo', subtitle_single: 'Radônio em {value}', action_danger: 'contate um especialista certificado em mitigação de radônio', action_warning: 'a EPA recomenda mitigação acima de {threshold}', action_info: 'aproximando-se do nível de ação' },
     metric: { humidity: 'Umidade', temperature: 'Temperatura', pressure: 'Pressão', noise: 'Ruído' },
-    editor: { name: 'Nome do Cartão', co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de Umidade', temperature_entity: 'Sensor de Temperatura', radon_entity: 'Sensor de Radônio', radon_longterm_entity: 'Sensor de Radônio (Longo Prazo)', co_entity: 'Sensor de CO (Monóxido de Carbono)', hcho_entity: 'Sensor de Formaldeído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de Pressão Atmosférica', noise_entity: 'Sensor de Ruído (dB)', o2_entity: 'Sensor de Oxigênio (O₂)', no2_entity: 'Sensor de Dióxido de Nitrogênio (NO₂)', o3_entity: 'Sensor de Ozônio (O₃)', c3h8_entity: 'Sensor de Propano (C₃H₈)', outdoor_co2_entity: 'CO₂ Externo', outdoor_pm25_entity: 'PM2.5 Externo', outdoor_humidity_entity: 'Umidade Externa', outdoor_temperature_entity: 'Temperatura Externa', outdoor_co_entity: 'CO Externo', outdoor_hcho_entity: 'HCHO Externo', outdoor_tvoc_entity: 'tVOC Externo', outdoor_pm1_entity: 'PM1 Externo', outdoor_pm10_entity: 'PM10 Externo', outdoor_pm03_entity: 'PM0.3 Externo', outdoor_nox_entity: 'NOx Externo', outdoor_no2_entity: 'NO₂ Externo', outdoor_o3_entity: 'O₃ Externo', outdoor_pressure_entity: 'Pressão Externa', air_quality_entity: 'Índice de Qualidade do Ar (opcional)', hours_to_show: 'Histórico do Gráfico', temperature_unit: 'Unidade de Temperatura', temperature_decimals: 'Mostrar temperatura com uma casa decimal', radon_unit: 'Unidade de Radônio', tvoc_unit: 'Tipo de Medição de tVOC', nox_unit: 'Tipo de Medição de NOx', language: 'Idioma', recommendation_action: 'Ação da recomendação (botão)', compact_alerts: 'Indicadores de alerta quando recolhido', auto_expand: 'Expandir automaticamente se a qualidade do ar piorar', section_additional: 'Sensores Adicionais', section_outdoor: 'Sensores Externos', section_advanced: 'Avançado' }
+    editor: { co2_entity: 'Sensor de CO₂', pm25_entity: 'Sensor de PM2.5', humidity_entity: 'Sensor de Umidade', temperature_entity: 'Sensor de Temperatura', radon_entity: 'Sensor de Radônio', radon_longterm_entity: 'Sensor de Radônio (Longo Prazo)', co_entity: 'Sensor de CO (Monóxido de Carbono)', hcho_entity: 'Sensor de Formaldeído (HCHO)', tvoc_entity: 'Sensor de tVOC', pm4_entity: 'Sensor de PM4', nox_entity: 'Sensor de NOx', pm1_entity: 'Sensor de PM1', pm10_entity: 'Sensor de PM10', pm03_entity: 'Sensor de PM0.3', pressure_entity: 'Sensor de Pressão Atmosférica', noise_entity: 'Sensor de Ruído (dB)', o2_entity: 'Sensor de Oxigênio (O₂)', no2_entity: 'Sensor de Dióxido de Nitrogênio (NO₂)', o3_entity: 'Sensor de Ozônio (O₃)', c3h8_entity: 'Sensor de Propano (C₃H₈)', outdoor_co2_entity: 'CO₂ Externo', outdoor_pm25_entity: 'PM2.5 Externo', outdoor_humidity_entity: 'Umidade Externa', outdoor_temperature_entity: 'Temperatura Externa', outdoor_co_entity: 'CO Externo', outdoor_hcho_entity: 'HCHO Externo', outdoor_tvoc_entity: 'tVOC Externo', outdoor_pm1_entity: 'PM1 Externo', outdoor_pm10_entity: 'PM10 Externo', outdoor_pm03_entity: 'PM0.3 Externo', outdoor_nox_entity: 'NOx Externo', outdoor_no2_entity: 'NO₂ Externo', outdoor_o3_entity: 'O₃ Externo', outdoor_pressure_entity: 'Pressão Externa', air_quality_entity: 'Índice de Qualidade do Ar (opcional)', temperature_unit: 'Unidade de Temperatura', temperature_decimals: 'Mostrar temperatura com uma casa decimal', radon_unit: 'Unidade de Radônio', tvoc_unit: 'Tipo de Medição de tVOC', nox_unit: 'Tipo de Medição de NOx', language: 'Idioma', recommendation_action: 'Ação da recomendação (botão)', compact_alerts: 'Indicadores de alerta quando recolhido', auto_expand: 'Expandir automaticamente se a qualidade do ar piorar', section_additional: 'Sensores Adicionais', section_outdoor: 'Sensores Externos', section_advanced: 'Avançado', show_min_max: 'Mostrar mín/máx de cada métrica', y_scale: 'Escala do eixo Y', show_status_banner: 'Mostrar banner de status', order: 'Ordem dos sensores', display: 'Modo de exibição' },
+    label: { outdoor: 'Externo', out: 'ext', lt: 'LP', loading: 'Carregando…' }
   },
   hu: {
     status: {
@@ -222,7 +338,8 @@ const TRANSLATIONS = {
       too_dry: 'Túl száraz', dry: 'Száraz', comfortable: 'Komfortos', humid: 'Párás', too_humid: 'Túl párás',
       cold: 'Hideg', cool: 'Hűvös', warm: 'Meleg', hot: 'Forró',
       normal: 'Normál', enriched: 'Dúsított', slightly_low: 'Kissé alacsony', slightly_high: 'Kissé magas',
-      quiet: 'Csendes', loud: 'Zajos', very_loud: 'Nagyon zajos'
+      quiet: 'Csendes', loud: 'Zajos', very_loud: 'Nagyon zajos',
+      unavailable: 'Nem elérhető'
     },
     recommendation: {
       all_good: 'Minden rendben', ventilate_now: 'Szellőztessen most', run_air_purifier: 'Kapcsolja be a légtisztítót',
@@ -231,44 +348,54 @@ const TRANSLATIONS = {
       co_warning: 'CO Figyelmeztetés – Szellőztessen most', co_elevated: 'CO Emelkedett – Szellőztessen',
       consider_ventilating: 'Fontolja meg a szellőztetést', keep_windows_closed: 'Tartsa zárva az ablakokat',
       too_dry: 'Túl száraz levegő', too_humid: 'Túl párás levegő', ventilate_formaldehyde: 'Szellőztetés – Formaldehid',
-      ventilate_vocs: 'Szellőztetés – Magas VOC szint', reduce_noise: 'Csökkentse a zajszintet'
+      ventilate_vocs: 'Szellőztetés – Magas VOC szint', reduce_noise: 'Csökkentse a zajszintet',
+      propane_danger: 'Gázszivárgás veszély – Hagyja el az épületet!', propane_warning: 'Gázszivárgás figyelmeztetés – Szellőztessen most',
+      o2_danger: 'Oxigénhiány veszély – Hagyja el a helyiséget!', o2_warning: 'Alacsony oxigénszint – Szellőztessen most',
+      ventilate_no2: 'Szellőztetés – Magas NO₂ szint', ventilate_o3: 'Szellőztetés – Magas O₃ szint'
     },
     subtitle: {
       air_quality_healthy: 'A levegőminőség az egészséges határértékeken belül van',
-      co_danger: 'CO szint: {value} ppm – veszélyes szint észlelve', co_danger_unknown: 'Veszélyes CO szint',
-      co_warning: 'CO szint: {value} ppm – azonnal nyisson ablakot', co_warning_unknown: 'Magas CO szint',
-      co_elevated: 'CO szint: {value} ppm – fokozza a szellőzést', co_elevated_unknown: 'Emelkedett CO szint',
-      purifier_pm25: 'PM2.5 szint: {value} μg/m³ – tisztítsa a levegőt',
-      purifier_pm10: 'PM10 szint: {value} μg/m³ – tisztítsa a levegőt',
+      co_danger: 'CO szint: {value} – veszélyes szint észlelve', co_danger_unknown: 'Veszélyes CO szint',
+      co_warning: 'CO szint: {value} – azonnal nyisson ablakot', co_warning_unknown: 'Magas CO szint',
+      co_elevated: 'CO szint: {value} – fokozza a szellőzést', co_elevated_unknown: 'Emelkedett CO szint',
+      purifier_pm25: 'PM2.5 szint: {value} – tisztítsa a levegőt',
+      purifier_pm10: 'PM10 szint: {value} – tisztítsa a levegőt',
       purifier_generic: 'A szálló por szintje emelkedett',
-      consider_purifier_pm10: 'PM10 szint: {value} μg/m³',
-      open_window_co2: 'CO₂ szint: {value} ppm – friss levegő szükséges',
-      purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³',
-      ventilate_now_co2: 'CO₂ szint: {value} ppm – befolyásolhatja a koncentrációt',
-      ventilate_formaldehyde: 'HCHO szint: {value} ppb – szellőztetés szükséges',
+      consider_purifier_pm10: 'PM10 szint: {value}',
+      open_window_co2: 'CO₂ szint: {value} – friss levegő szükséges',
+      purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}',
+      ventilate_now_co2: 'CO₂ szint: {value} – befolyásolhatja a koncentrációt',
+      ventilate_formaldehyde: 'HCHO szint: {value} – szellőztetés szükséges',
       ventilate_formaldehyde_unknown: 'Emelkedett formaldehid szint',
-      ventilate_vocs: 'tVOC szint: {value} ppb – szellőztetés szükséges',
+      ventilate_vocs: 'tVOC szint: {value} – szellőztetés szükséges',
       ventilate_vocs_unknown: 'Emelkedett VOC szint',
-      too_dry: 'Páratartalom: {value}% – fontolja meg párásító használatát',
-      too_humid: 'Páratartalom: {value}% – szellőztessen',
-      consider_ventilating_co2: 'CO₂ szint: {value} ppm',
-      consider_ventilating_pm25: 'PM2.5 szint: {value} μg/m³',
+      too_dry: 'Páratartalom: {value} – fontolja meg párásító használatát',
+      too_humid: 'Páratartalom: {value} – szellőztessen',
+      consider_ventilating_co2: 'CO₂ szint: {value}',
+      consider_ventilating_pm25: 'PM2.5 szint: {value}',
       consider_ventilating_generic: 'Enyhén emelkedett szintek',
-      keep_closed_outdoor_pm25_poor: 'Kültéri PM2.5: {value} μg/m³ – rossz kinti levegő',
-      keep_closed_outdoor_pm25: 'Kültéri PM2.5: {value} μg/m³ – rosszabb, mint bent',
-      keep_closed_outdoor_co2: 'Kültéri CO₂: {value} ppm – rosszabb, mint bent',
+      keep_closed_outdoor_pm25_poor: 'Kültéri PM2.5: {value} – rossz kinti levegő',
+      keep_closed_outdoor_pm25: 'Kültéri PM2.5: {value} – rosszabb, mint bent',
+      keep_closed_outdoor_co2: 'Kültéri CO₂: {value} – rosszabb, mint bent',
       keep_closed_generic: 'A kültéri levegőminőség rosszabb, mint a benti',
-      reduce_noise: 'Zajszint: {value} dB – tartósan halláskárosodást okozhat', reduce_noise_unknown: 'Magas zajszint'
+      reduce_noise: 'Zajszint: {value} – tartósan halláskárosodást okozhat', reduce_noise_unknown: 'Magas zajszint',
+      propane_danger: 'Propán szint: {value} – robbanásveszélyes, azonnal hagyja el az épületet', propane_danger_unknown: 'Veszélyes propán szint',
+      propane_warning: 'Propán szint: {value} – lehetséges gázszivárgás, szellőztessen most', propane_warning_unknown: 'Emelkedett propán szint',
+      o2_danger: 'O₂ szint: {value} – veszélyesen alacsony oxigénszint', o2_danger_unknown: 'Veszélyesen alacsony oxigénszint',
+      o2_warning: 'O₂ szint: {value} – fokozza a szellőzést', o2_warning_unknown: 'Alacsony oxigénszint',
+      ventilate_no2: 'NO₂ szint: {value} – szellőztetés szükséges', ventilate_no2_unknown: 'Emelkedett NO₂ szint',
+      ventilate_o3: 'O₃ szint: {value} – szellőztetés szükséges', ventilate_o3_unknown: 'Emelkedett O₃ szint'
     },
     radon: {
       advisory_danger: 'Magas Radon szint – Beavatkozás szükséges',
       advisory_warning: 'Radon az EPA intézkedési szint felett',
       advisory_info: 'Radon – Kísérje figyelemmel',
-      short_term: 'Rövid távú', long_term: 'Hosszú távú'
+      short_term: 'Rövid távú', long_term: 'Hosszú távú',
+      subtitle_single: 'Radon szint: {value}', action_danger: 'forduljon minősített radonmentesítő szakemberhez', action_warning: 'az EPA {threshold} felett beavatkozást javasol', action_info: 'közelít az intézkedési szinthez'
     },
     metric: { humidity: 'Páratartalom', temperature: 'Hőmérséklet', pressure: 'Légnyomás', noise: 'Zaj' },
     editor: {
-      name: 'Kártya neve', co2_entity: 'CO₂ szenzor', pm25_entity: 'PM2.5 szenzor',
+      co2_entity: 'CO₂ szenzor', pm25_entity: 'PM2.5 szenzor',
       humidity_entity: 'Páratartalom szenzor', temperature_entity: 'Hőmérséklet szenzor',
       radon_entity: 'Radon szenzor', radon_longterm_entity: 'Radon (hosszú távú) szenzor',
       co_entity: 'CO (Szén-monoxid) szenzor', hcho_entity: 'Formaldehid (HCHO) szenzor',
@@ -281,25 +408,30 @@ const TRANSLATIONS = {
       outdoor_tvoc_entity: 'Kültéri tVOC', outdoor_pm1_entity: 'Kültéri PM1',
       outdoor_pm10_entity: 'Kültéri PM10', outdoor_pm03_entity: 'Kültéri PM0.3',
       outdoor_nox_entity: 'Kültéri NOx', outdoor_pressure_entity: 'Kültéri légnyomás',
-      air_quality_entity: 'Levegőminőségi index (opcionális)', hours_to_show: 'Grafikon előzmények (óra)',
+      air_quality_entity: 'Levegőminőségi index (opcionális)',
       temperature_unit: 'Hőmérséklet mértékegysége', temperature_decimals: 'Hőmérséklet egy tizedesjeggyel', radon_unit: 'Radon mértékegysége',
       tvoc_unit: 'tVOC mérés típusa', nox_unit: 'NOx mérés típusa', language: 'Nyelv',
       recommendation_action: 'Ajánlás akciógomb',
       compact_alerts: 'Figyelmeztető ikonok összecsukott állapotban',
       auto_expand: 'Automatikus kibontás romló levegőminőségnél',
       section_additional: 'További szenzorok', section_outdoor: 'Kültéri szenzorok',
-      section_advanced: 'Haladó beállítások'
-    }
+      section_advanced: 'Haladó beállítások',
+      show_min_max: 'Min/max megjelenítése mérőszámonként', y_scale: 'Y tengely skálázása', show_status_banner: 'Állapotsáv megjelenítése', order: 'Szenzorok sorrendje', display: 'Megjelenítési mód',
+      o2_entity: 'Oxigén (O₂) szenzor', no2_entity: 'Nitrogén-dioxid (NO₂) szenzor', o3_entity: 'Ózon (O₃) szenzor', c3h8_entity: 'Propán (C₃H₈) szenzor',
+      outdoor_no2_entity: 'Kültéri NO₂', outdoor_o3_entity: 'Kültéri O₃'
+    },
+    label: { outdoor: 'Kültéri', out: 'kint', lt: 'HT', loading: 'Betöltés…' }
   },
   pl: {
     status: {
       excellent: 'Bardzo dobry', good: 'Dobry', moderate: 'Umiarkowany', fair: 'Dostateczny',
-      poor: 'Zły', very_poor: 'Bardzo zły', extremely_poor: 'Ekstremalnie zły', dangerous: 'Toksyczny',
+      poor: 'Zły', very_poor: 'Bardzo zły', extremely_poor: 'Ekstremalnie zły', dangerous: 'Niebezpieczny',
       safe: 'Bezpieczny', low: 'Niski', high: 'Wysoki', elevated: 'Podwyższony', clean: 'Czysty',
       too_dry: 'Zbyt sucho', dry: 'Sucho', comfortable: 'Komfortowo', humid: 'Wilgotno', too_humid: 'Zbyt wilgotno',
       cold: 'Zimno', cool: 'Chłodno', warm: 'Ciepło', hot: 'Gorąco',
       normal: 'W normie', enriched: 'Wzbogacony', slightly_low: 'Nieco niskie', slightly_high: 'Nieco wysokie',
-      quiet: 'Cicho', loud: 'Głośno', very_loud: 'Bardzo głośno'
+      quiet: 'Cicho', loud: 'Głośno', very_loud: 'Bardzo głośno',
+      unavailable: 'Niedostępny'
     },
     recommendation: {
       all_good: 'Wszystko w normie', ventilate_now: 'Wywietrz', run_air_purifier: 'Włącz oczyszczacz',
@@ -308,44 +440,54 @@ const TRANSLATIONS = {
       co_warning: 'Ostrzeżenie CO — Wywietrz teraz!', co_elevated: 'Podwyższone stężenie CO — Wywietrz',
       consider_ventilating: 'Rozważ wietrzenie', keep_windows_closed: 'Nie otwieraj okien',
       too_dry: 'Zbyt suche powietrze', too_humid: 'Zbyt wilgotne powietrze', ventilate_formaldehyde: 'Wywietrz — Formaldehyd',
-      ventilate_vocs: 'Wywietrz — LZO', reduce_noise: 'Zmniejsz poziom hałasu'
+      ventilate_vocs: 'Wywietrz — LZO', reduce_noise: 'Zmniejsz poziom hałasu',
+      propane_danger: 'Wyciek gazu — Ewakuuj się!', propane_warning: 'Możliwy wyciek gazu — Wywietrz teraz!',
+      o2_danger: 'Niski poziom tlenu — Opuść pomieszczenie!', o2_warning: 'Obniżony poziom tlenu — Wywietrz teraz!',
+      ventilate_no2: 'Wywietrz — NO₂', ventilate_o3: 'Wywietrz — O₃'
     },
     subtitle: {
       air_quality_healthy: 'Powietrze w normie',
-      co_danger: 'CO {value} ppm — Niebezpieczny poziom CO!', co_danger_unknown: 'Niebezpieczny poziom CO!',
-      co_warning: 'CO {value} ppm — Otwórz okna!', co_warning_unknown: 'Wysoki poziom CO — Otwórz okna!',
-      co_elevated: 'CO {value} ppm — Popraw wentylację!', co_elevated_unknown: 'Podwyższone stężenie CO',
-      purifier_pm25: 'PM2.5 {value} μg/m³ - Przefiltruj powietrze',
-      purifier_pm10: 'PM10 {value} μg/m³ - Przefiltruj powietrze',
+      co_danger: 'CO {value} — Niebezpieczny poziom CO!', co_danger_unknown: 'Niebezpieczny poziom CO!',
+      co_warning: 'CO {value} — Otwórz okna!', co_warning_unknown: 'Wysoki poziom CO — Otwórz okna!',
+      co_elevated: 'CO {value} — Popraw wentylację!', co_elevated_unknown: 'Podwyższone stężenie CO',
+      purifier_pm25: 'PM2.5 {value} - Przefiltruj powietrze',
+      purifier_pm10: 'PM10 {value} - Przefiltruj powietrze',
       purifier_generic: 'Podwyższony poziom pyłów zawieszonych',
-      consider_purifier_pm10: 'PM10 {value} μg/m³',
-      open_window_co2: 'CO₂ {value} ppm - Pora otworzyć okna',
-      purifier_ventilate: 'CO₂: {co2} ppm, PM2.5: {pm25} μg/m³',
-      ventilate_now_co2: 'CO₂ {value} ppm - Może pogarszać koncentrację',
-      ventilate_formaldehyde: 'HCHO {value} ppb - Potrzebna wentylacja',
+      consider_purifier_pm10: 'PM10 {value}',
+      open_window_co2: 'CO₂ {value} - Pora otworzyć okna',
+      purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}',
+      ventilate_now_co2: 'CO₂ {value} - Może pogarszać koncentrację',
+      ventilate_formaldehyde: 'HCHO {value} - Potrzebna wentylacja',
       ventilate_formaldehyde_unknown: 'Podwyższony poziom formaldehydu',
-      ventilate_vocs: 'LZO {value} ppb - Potrzebna wentylacja',
+      ventilate_vocs: 'LZO {value} - Potrzebna wentylacja',
       ventilate_vocs_unknown: 'Podniesiony poziom LZO',
-      too_dry: 'Wilgotność {value}% - Rozważ nawilżanie',
-      too_humid: 'Wilgotność {value}% - Wywietrz',
-      consider_ventilating_co2: 'CO₂ {value} ppm',
-      consider_ventilating_pm25: 'PM2.5 {value} μg/m³',
+      too_dry: 'Wilgotność {value} - Rozważ nawilżanie',
+      too_humid: 'Wilgotność {value} - Wywietrz',
+      consider_ventilating_co2: 'CO₂ {value}',
+      consider_ventilating_pm25: 'PM2.5 {value}',
       consider_ventilating_generic: 'Nieznacznie podwyższone poziomy',
-      keep_closed_outdoor_pm25_poor: 'PM2.5 na zew.: {value} μg/m³ - Nie otwieraj okien',
-      keep_closed_outdoor_pm25:'PM2.5 na zew.: {value} μg/m³ — gorzej niż wewnątrz',
-      keep_closed_outdoor_co2:'CO₂ na zew.: {value} ppm — gorzej niż wewnątrz',
+      keep_closed_outdoor_pm25_poor: 'PM2.5 na zew.: {value} - Nie otwieraj okien',
+      keep_closed_outdoor_pm25:'PM2.5 na zew.: {value} — gorzej niż wewnątrz',
+      keep_closed_outdoor_co2:'CO₂ na zew.: {value} — gorzej niż wewnątrz',
       keep_closed_generic: 'Niska jakość powietrza na zewnątrz',
-      reduce_noise: 'Hałas {value} dB - długotrwały może szkodzić słuchowi', reduce_noise_unknown: 'Podwyższony poziom hałasu'
+      reduce_noise: 'Hałas {value} - długotrwały może szkodzić słuchowi', reduce_noise_unknown: 'Podwyższony poziom hałasu',
+      propane_danger: 'Propan {value} — Poziom wybuchowy, natychmiast się ewakuuj!', propane_danger_unknown: 'Niebezpieczny poziom propanu!',
+      propane_warning: 'Propan {value} — Możliwy wyciek gazu, wywietrz teraz', propane_warning_unknown: 'Podwyższony poziom propanu',
+      o2_danger: 'O₂ {value} — Niebezpiecznie niski poziom tlenu!', o2_danger_unknown: 'Niebezpiecznie niski poziom tlenu!',
+      o2_warning: 'O₂ {value} — Popraw wentylację', o2_warning_unknown: 'Obniżony poziom tlenu',
+      ventilate_no2: 'NO₂ {value} - Potrzebna wentylacja', ventilate_no2_unknown: 'Podwyższony poziom NO₂',
+      ventilate_o3: 'O₃ {value} - Potrzebna wentylacja', ventilate_o3_unknown: 'Podwyższony poziom O₃'
     },
     radon: {
       advisory_danger: 'Zagrożenie Radonem - Wymagane działanie',
       advisory_warning: 'Radon powyżej progu działania EPA',
       advisory_info: 'Radon - monitoruj uważnie',
-      short_term: 'Krótkoterminowy', long_term: 'Długoterminowy'
+      short_term: 'Krótkoterminowy', long_term: 'Długoterminowy',
+      subtitle_single: 'Radon {value}', action_danger: 'skontaktuj się z certyfikowanym specjalistą ds. radonu', action_warning: 'EPA zaleca działania powyżej {threshold}', action_info: 'zbliża się do progu działania'
     },
     metric: { humidity: 'Wilgotność', temperature: 'Temperatura', pressure: 'Ciśnienie', noise: 'Hałas' },
     editor: {
-      name: 'Tytuł karty', co2_entity: 'CO₂', pm25_entity: 'PM2.5',
+      co2_entity: 'CO₂', pm25_entity: 'PM2.5',
       humidity_entity: 'Wilgotność', temperature_entity: 'Temperatura',
       radon_entity: 'Chwilowy poziom radonu', radon_longterm_entity: 'Średni poziom radonu',
       co_entity: 'Tlenek węgla (CO)', hcho_entity: 'Formaldehyd (HCHO)',
@@ -358,7 +500,7 @@ const TRANSLATIONS = {
       outdoor_tvoc_entity: 'Zew. tVOC', outdoor_pm1_entity: 'Zew. PM1',
       outdoor_pm10_entity: 'Zew. PM10', outdoor_pm03_entity: 'Zew. PM0.3',
       outdoor_nox_entity: 'Zew. NOx', outdoor_pressure_entity: 'Ciśnienie atmosferyczne zew.',
-      air_quality_entity: 'Indeks jakości powietrza (opcjonalnie)', hours_to_show: 'Historia pomiarów',
+      air_quality_entity: 'Indeks jakości powietrza (opcjonalnie)',
       temperature_unit: 'Jednostka temperatury', temperature_decimals: 'Temperatura z jednym miejscem po przecinku', radon_unit: 'Jednostka radonu',
       tvoc_unit: 'Typ pomiaru LZO (tVOC)', nox_unit: 'Typ pomiaru NOx', language: 'Język',
       recommendation_action: 'Akcja zalecanego działania (przycisk)',
@@ -367,22 +509,36 @@ const TRANSLATIONS = {
       section_additional: 'Dodatkowe sensory', section_outdoor: 'Zewnętrzne sensory',
       section_advanced: 'Zawansowane', show_min_max: 'Pokazuj min/max na wykresie',
       order: 'Kolejność sensorów (wybierz w kolejności priorytetu)',
-      display: 'Tryb wyświetlania', tap_action: 'Akcja po kliknięciu',
-      hold_action: 'Akcja po przytrzymaniu', double_tap_action: 'Akcja po dwukrotnym kliknięciu'
-    }
+      display: 'Tryb wyświetlania',
+      y_scale: 'Skala osi Y', show_status_banner: 'Pokazuj baner statusu',
+      o2_entity: 'Tlen (O₂)', no2_entity: 'Dwutlenek azotu (NO₂)', o3_entity: 'Ozon (O₃)', c3h8_entity: 'Propan (C₃H₈)',
+      outdoor_no2_entity: 'Zew. NO₂', outdoor_o3_entity: 'Zew. O₃'
+    },
+    label: { outdoor: 'Na zewnątrz', out: 'zew.', lt: 'DT', loading: 'Ładowanie…' }
   },
 };
 
 class AirQualityCard extends HTMLElement {
-  static getConfigElement() {
-    return document.createElement('air-quality-card-editor');
+  // HA's built-in form editor (no editor element, no Lit) — see configForm().
+  static getConfigForm() {
+    return configForm();
   }
 
-  static getStubConfig() {
-    return {
-      name: 'Air Quality',
-      hours_to_show: 24
-    };
+  // Card-picker preview: build the card from the first device that has a
+  // CO₂/PM2.5-style sensor, so the preview shows real data instead of the
+  // "configure at least one sensor" error a sensor-less stub would throw.
+  static getStubConfig(hass) {
+    const states = hass?.states || {};
+    const ids = Object.keys(states).filter(id => id.startsWith('sensor.')).sort();
+    for (const metric of ['co2', 'pm25', 'tvoc', 'co', 'radon', 'humidity', 'temperature']) {
+      const id = ids.find(e => DEVICE_CLASS_METRIC[states[e].attributes?.device_class] === metric);
+      if (id) {
+        const { type, ...config } = configForDevice(hass, id);
+        return config;
+      }
+    }
+    // Nothing recognizable: point at a placeholder so the preview still renders.
+    return { co2_entity: ids[0] || 'sensor.co2' };
   }
 
   constructor() {
@@ -393,8 +549,9 @@ class AirQualityCard extends HTMLElement {
     this._rendered = false;
     this._history = { co2: [], pm25: [], pm1: [], pm10: [], pm03: [], pm4: [], hcho: [], tvoc: [], nox: [], co: [], o2: [], no2: [], o3: [], c3h8: [], radon: [], radon_longterm: [], humidity: [], temperature: [], pressure: [], noise: [], outdoor_co2: [], outdoor_pm25: [], outdoor_pm1: [], outdoor_pm10: [], outdoor_pm03: [], outdoor_hcho: [], outdoor_tvoc: [], outdoor_nox: [], outdoor_co: [], outdoor_no2: [], outdoor_o3: [], outdoor_humidity: [], outdoor_temperature: [], outdoor_pressure: [] };
     this._historyLoaded = false;
+    this._historyRaw = {}; // entity_id → [{time, value}] from the history/stream subscription
+    this._historyUnsub = null; // Promise<unsubscribe fn> while subscribed
     this._graphData = {};
-    this._isDragging = false;
     this._expanded = false; // expandable display mode: collapsed by default
     this._userToggled = false; // a manual expand/collapse overrides auto_expand
     this._lastAbnormalMs = 0; // auto_expand collapse hysteresis anchor
@@ -424,6 +581,7 @@ class AirQualityCard extends HTMLElement {
       throw new Error('Please configure at least one sensor entity');
     }
 
+    this._rawConfig = config;
     this._config = {
       name: 'Air Quality',
       hours_to_show: 24,
@@ -468,8 +626,26 @@ class AirQualityCard extends HTMLElement {
       }
     }
 
+    this._unsubscribeHistory();
     this._rendered = false;
     this._historyLoaded = false;
+  }
+
+  // Sections-view sizing (HA 2024.11+). 12 columns = full section width;
+  // rows are left to the card's own height since it varies with sensor count.
+  getGridOptions() {
+    return { columns: 12, min_columns: 6 };
+  }
+
+  // HA detaches cards that are hidden by visibility conditions and rebuilds
+  // them in the editor preview, so the live history subscription and the
+  // redraw timer follow the element's connection rather than its lifetime.
+  connectedCallback() {
+    if (this._rendered && this._hass && !this._isCompact()) this._loadHistory();
+  }
+
+  disconnectedCallback() {
+    this._unsubscribeHistory();
   }
 
   _getMinMax(data) {
@@ -483,13 +659,10 @@ class AirQualityCard extends HTMLElement {
     return { min, max };
   }
 
-  _formatGraphValue(value, unit) {
-    if (unit === 'pCi/L') return value.toFixed(1);
-    if (unit === '°F' || unit === '°C') return this._config.temperature_decimals ? value.toFixed(1) : Math.round(value);
-    if (unit === 'ppm' || unit === 'ppb' || unit === 'p/0.1L' || unit === 'Bq/m³' || unit === '%') {
-      return Math.round(value);
-    }
-    return value.toFixed(1);
+  // Graph values (min/max markers, tooltip) use the same precision and
+  // number format as the metric's readout.
+  _formatGraphValue(value, metric) {
+    return this._formatNumber(value, this._metricDecimals(metric, this._graphEntity(metric)));
   }
 
   // Anchor min/max value labels to the actual data points on the line.
@@ -512,8 +685,8 @@ class AirQualityCard extends HTMLElement {
     const wrapper = this.shadowRoot.getElementById(`${graphId}-graph`);
     if (!wrapper) return;
 
-    this._renderMinMaxMarker(graphId, 'max', points[maxIdx], colorFn(minMax.max), this._formatGraphValue(minMax.max, this._graphData[graphId].unit));
-    this._renderMinMaxMarker(graphId, 'min', points[minIdx], colorFn(minMax.min), this._formatGraphValue(minMax.min, this._graphData[graphId].unit));
+    this._renderMinMaxMarker(graphId, 'max', points[maxIdx], colorFn(minMax.max), this._formatGraphValue(minMax.max, graphId));
+    this._renderMinMaxMarker(graphId, 'min', points[minIdx], colorFn(minMax.min), this._formatGraphValue(minMax.min, graphId));
   }
 
   _renderMinMaxMarker(graphId, kind, point, color, valueStr) {
@@ -647,15 +820,26 @@ class AirQualityCard extends HTMLElement {
     return undefined;
   }
 
+  // The profile's time zone setting: 'server' shows times in the HA server's
+  // zone, 'local' (the default) in the browser's — same as HA's own
+  // resolveTimeZone. `undefined` lets Intl use the browser zone.
+  _timeZone() {
+    if (this._hass?.locale?.time_zone === 'server' && this._hass?.config?.time_zone) {
+      return this._hass.config.time_zone;
+    }
+    return undefined;
+  }
+
   // Graph time labels adapt to the configured window (#53): plain times up
   // to a day, weekday + hour across a few days, calendar dates beyond that.
   _formatAxisTime(d) {
     const hours = Number(this._config.hours_to_show) || 24;
     const loc = this._dateLocale();
     const hourCycle = this._timeHourCycle();
-    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit', hourCycle });
-    if (hours <= 96) return d.toLocaleString(loc, { weekday: 'short', hour: 'numeric', hourCycle });
-    return d.toLocaleDateString(loc, { month: 'short', day: 'numeric' });
+    const timeZone = this._timeZone();
+    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit', hourCycle, timeZone });
+    if (hours <= 96) return d.toLocaleString(loc, { weekday: 'short', hour: 'numeric', hourCycle, timeZone });
+    return d.toLocaleDateString(loc, { month: 'short', day: 'numeric', timeZone });
   }
 
   // Hover tooltip time: include the day once the window spans more than one.
@@ -663,8 +847,33 @@ class AirQualityCard extends HTMLElement {
     const hours = Number(this._config.hours_to_show) || 24;
     const loc = this._dateLocale();
     const hourCycle = this._timeHourCycle();
-    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit', hourCycle });
-    return d.toLocaleString(loc, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hourCycle });
+    const timeZone = this._timeZone();
+    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit', hourCycle, timeZone });
+    return d.toLocaleString(loc, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hourCycle, timeZone });
+  }
+
+  // Number formatting follows the profile's "Number format" setting the same
+  // way HA's formatNumber does (decimal comma, grouping, …), so 21.4 reads
+  // "21,4" for a German user just like the rest of their dashboard.
+  _formatNumber(value, decimals) {
+    const format = this._hass?.locale?.number_format;
+    const locales = {
+      comma_decimal: ['en-US', 'en'], decimal_comma: ['de', 'es', 'it'],
+      space_comma: ['fr', 'sv', 'cs'], quote_decimal: ['de-CH'], none: 'en-US', system: undefined
+    };
+    const locale = format in locales ? locales[format] : this._dateLocale();
+    const key = `${locale}|${format}|${decimals}`;
+    this._numberFormats = this._numberFormats || {};
+    let fmt = this._numberFormats[key];
+    if (!fmt) {
+      try {
+        fmt = new Intl.NumberFormat(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: format !== 'none' });
+      } catch (e) {
+        fmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+      }
+      this._numberFormats[key] = fmt;
+    }
+    return fmt.format(value);
   }
 
   // Look up a translated string: _t('status', 'good') → 'Bueno' (es).
@@ -690,15 +899,38 @@ class AirQualityCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const old = this._hass;
     this._hass = hass;
+    editorLanguage = this._resolveLanguage();
     if (!this._rendered) {
       this._initialRender();
       this._rendered = true;
-      // Compact mode doesn't draw graphs, so skip the history fetch
+      // Compact mode doesn't draw graphs, so skip the history subscription
       if (!this._isCompact()) this._loadHistory();
+    } else if (old && old.locale !== hass.locale) {
+      // Labels and number/time formats are baked into the markup — rebuild.
+      this._numberFormats = null;
+      this._initialRender();
+      if (this._historyLoaded) this._renderGraphs();
+    } else if (old && !this._watchedEntityChanged(old, hass)) {
+      // HA pushes a new hass object for every state change in the whole
+      // system; skip the DOM work unless one of our sensors changed.
+      return;
     }
     this._maybeAutoExpand();
     this._updateStates();
+  }
+
+  // Every entity this card reads, for change detection and history.
+  _watchedEntities() {
+    return Object.keys(this._config)
+      .filter(k => k.endsWith('_entity') && typeof this._config[k] === 'string' && this._config[k])
+      .map(k => this._config[k]);
+  }
+
+  _watchedEntityChanged(oldHass, hass) {
+    if (oldHass.states === hass.states) return false;
+    return this._watchedEntities().some(id => oldHass.states?.[id] !== hass.states?.[id]);
   }
 
   // Resolve the metric display order. User's `order` wins; anything they
@@ -762,160 +994,146 @@ class AirQualityCard extends HTMLElement {
     this.dispatchEvent(event);
   }
 
-  async _loadHistory() {
-    if (!this._hass || this._historyLoaded) return;
+  // Graph series key → entity id. Outdoor mirrors share the indoor metric's
+  // series key with an `outdoor_` prefix; radon keeps its two sensors apart.
+  _historySeries() {
+    const series = {};
+    for (const key of Object.keys(this._history)) {
+      const entityId = this._config[`${key}_entity`];
+      if (entityId) series[key] = entityId;
+    }
+    return series;
+  }
 
-    const endTime = new Date();
-    const startTime = new Date(endTime.getTime() - (this._config.hours_to_show * 60 * 60 * 1000));
-    // Persist the requested time window so _renderGraph can plot points by
-    // timestamp (not by data-point index) and so axis labels reflect the
-    // configured window even when data doesn't span it.
-    this._timeWindow = { start: startTime.getTime(), end: endTime.getTime() };
+  // Live history, the way HA's own history-graph card does it: one
+  // `history/stream` subscription for every graphed entity. HA sends the
+  // window's history first, then each new state as it's recorded, so the
+  // graphs stay current on an always-on dashboard. The subscription follows
+  // the element's connection (see connected/disconnectedCallback).
+  _loadHistory() {
+    if (this._historyUnsub || !this._hass?.connection?.subscribeMessage) return;
+    const entityIds = [...new Set(Object.values(this._historySeries()))];
+    if (!entityIds.length) return;
+    const hours = Number(this._config.hours_to_show) || 24;
+    const start = new Date(Date.now() - hours * 3600000);
+    // A token guards against a stale subscription delivering into a card
+    // whose config changed while the request was in flight.
+    const token = {};
+    this._historyToken = token;
+    this._historyRaw = {};
+    this._timeWindow = { start: start.getTime(), end: Date.now() };
+    const connection = this._hass.connection;
+    this._historyUnsub = connection.subscribeMessage(
+      (message) => { if (this._historyToken === token) this._onHistoryMessage(message); },
+      {
+        type: 'history/stream',
+        entity_ids: entityIds,
+        start_time: start.toISOString(),
+        minimal_response: true,
+        significant_changes_only: true,
+        no_attributes: true
+      },
+      { resubscribe: false }
+    );
+    this._historyUnsub.catch((e) => {
+      console.warn('Air Quality Card: history subscription failed:', e);
+      if (this._historyToken === token) this._historyUnsub = null;
+    });
+    // After a websocket reconnect, start over with a fresh window rather than
+    // replaying the original start_time (HA's history-graph does the same).
+    this._historyConnection = connection;
+    this._onReconnect = this._onReconnect || (() => { this._unsubscribeHistory(); this._loadHistory(); });
+    connection.addEventListener?.('ready', this._onReconnect);
+    // Slide the window forward even when no sensor reports a new value.
+    this._redrawTimer = setInterval(() => this._onRedrawTick(), 60000);
+  }
 
-    try {
-      const promises = [];
-      const keys = [];
+  _unsubscribeHistory() {
+    this._historyToken = null;
+    if (this._historyUnsub) {
+      this._historyUnsub.then(unsub => unsub()).catch(() => {});
+      this._historyUnsub = null;
+    }
+    if (this._historyConnection && this._onReconnect) {
+      this._historyConnection.removeEventListener?.('ready', this._onReconnect);
+      this._historyConnection = null;
+    }
+    clearInterval(this._redrawTimer);
+    this._redrawTimer = null;
+    clearTimeout(this._renderGraphsTimer);
+    this._renderGraphsTimer = null;
+  }
 
-      if (this._config.co_entity) {
-        promises.push(this._fetchHistory(this._config.co_entity, startTime, endTime));
-        keys.push('co');
+  // history/stream messages: {states: {entity_id: [{s, lu, lc?}]}}. The
+  // first carries the whole window; later ones only new rows. Times are
+  // epoch seconds. Non-numeric states (unavailable/unknown) are skipped so
+  // an outage doesn't plot as a drop to zero.
+  _onHistoryMessage(message) {
+    for (const [entityId, rows] of Object.entries(message?.states || {})) {
+      const list = this._historyRaw[entityId] || (this._historyRaw[entityId] = []);
+      let sorted = true;
+      for (const row of rows) {
+        const value = parseFloat(row.s);
+        if (!Number.isFinite(value)) continue;
+        const time = (row.lu ?? row.lc) * 1000;
+        if (list.length && time < list[list.length - 1].time) sorted = false;
+        list.push({ time, value });
       }
-      if (this._config.radon_entity) {
-        promises.push(this._fetchHistory(this._config.radon_entity, startTime, endTime));
-        keys.push('radon');
-      }
-      if (this._config.radon_longterm_entity) {
-        promises.push(this._fetchHistory(this._config.radon_longterm_entity, startTime, endTime));
-        keys.push('radon_longterm');
-      }
-      if (this._config.co2_entity) {
-        promises.push(this._fetchHistory(this._config.co2_entity, startTime, endTime));
-        keys.push('co2');
-      }
-      if (this._config.pm25_entity) {
-        promises.push(this._fetchHistory(this._config.pm25_entity, startTime, endTime));
-        keys.push('pm25');
-      }
-      if (this._config.pm10_entity) {
-        promises.push(this._fetchHistory(this._config.pm10_entity, startTime, endTime));
-        keys.push('pm10');
-      }
-      if (this._config.pm1_entity) {
-        promises.push(this._fetchHistory(this._config.pm1_entity, startTime, endTime));
-        keys.push('pm1');
-      }
-      if (this._config.pm03_entity) {
-        promises.push(this._fetchHistory(this._config.pm03_entity, startTime, endTime));
-        keys.push('pm03');
-      }
-      if (this._config.hcho_entity) {
-        promises.push(this._fetchHistory(this._config.hcho_entity, startTime, endTime));
-        keys.push('hcho');
-      }
-      if (this._config.tvoc_entity) {
-        promises.push(this._fetchHistory(this._config.tvoc_entity, startTime, endTime));
-        keys.push('tvoc');
-      }
-      if (this._config.pm4_entity) {
-        promises.push(this._fetchHistory(this._config.pm4_entity, startTime, endTime));
-        keys.push('pm4');
-      }
-      if (this._config.nox_entity) {
-        promises.push(this._fetchHistory(this._config.nox_entity, startTime, endTime));
-        keys.push('nox');
-      }
-      if (this._config.o2_entity) {
-        promises.push(this._fetchHistory(this._config.o2_entity, startTime, endTime));
-        keys.push('o2');
-      }
-      if (this._config.no2_entity) {
-        promises.push(this._fetchHistory(this._config.no2_entity, startTime, endTime));
-        keys.push('no2');
-      }
-      if (this._config.o3_entity) {
-        promises.push(this._fetchHistory(this._config.o3_entity, startTime, endTime));
-        keys.push('o3');
-      }
-      if (this._config.c3h8_entity) {
-        promises.push(this._fetchHistory(this._config.c3h8_entity, startTime, endTime));
-        keys.push('c3h8');
-      }
-      if (this._config.pressure_entity) {
-        promises.push(this._fetchHistory(this._config.pressure_entity, startTime, endTime));
-        keys.push('pressure');
-      }
-      if (this._config.noise_entity) {
-        promises.push(this._fetchHistory(this._config.noise_entity, startTime, endTime));
-        keys.push('noise');
-      }
-      if (this._config.humidity_entity) {
-        promises.push(this._fetchHistory(this._config.humidity_entity, startTime, endTime));
-        keys.push('humidity');
-      }
-      if (this._config.temperature_entity) {
-        promises.push(this._fetchHistory(this._config.temperature_entity, startTime, endTime));
-        keys.push('temperature');
-      }
+      if (!sorted) list.sort((x, y) => x.time - y.time);
+    }
+    this._historyLoaded = true;
+    this._scheduleRenderGraphs();
+  }
 
-      // Outdoor sensors
-      const outdoorSensors = ['co2', 'pm25', 'pm1', 'pm10', 'pm03', 'hcho', 'tvoc', 'nox', 'co', 'no2', 'o3', 'humidity', 'temperature', 'pressure'];
-      for (const sensor of outdoorSensors) {
-        const key = `outdoor_${sensor}_entity`;
-        if (this._config[key]) {
-          promises.push(this._fetchHistory(this._config[key], startTime, endTime));
-          keys.push(`outdoor_${sensor}`);
-        }
-      }
+  _onRedrawTick() {
+    this._maybeAutoExpand();
+    if (this._historyLoaded) this._renderGraphs();
+  }
 
-      const results = await Promise.all(promises);
-
-      const endMs = endTime.getTime();
-      keys.forEach((key, i) => {
-        const processed = this._processHistory(results[i]);
-        // Carry the latest known reading forward to the right edge of the
-        // window. With `minimal_response`, HA collapses runs of identical
-        // states, so a steady sensor (e.g. clean-air PM at 0, NOx at 1) only
-        // emits a point when it changes — leaving the line ending hours ago.
-        // HA's own history-graph extends the last state to "now"; we match it.
-        this._history[key] = this._extendToNow(processed, this._config[`${key}_entity`], endMs);
-      });
-
-      this._historyLoaded = true;
+  // Coalesce bursts of stream messages (many sensors updating together).
+  _scheduleRenderGraphs() {
+    if (this._renderGraphsTimer) return;
+    this._renderGraphsTimer = setTimeout(() => {
+      this._renderGraphsTimer = null;
       this._renderGraphs();
-    } catch (e) {
-      console.warn('Air Quality Card: Failed to load history:', e);
+    }, 250);
+  }
+
+  // Rebuild the per-metric series for the current window: drop rows that
+  // slid out (keeping the last one, which still sets the line's left edge),
+  // convert units, and carry the latest reading to "now".
+  _buildHistory() {
+    const hours = Number(this._config.hours_to_show) || 24;
+    const now = Date.now();
+    const start = now - hours * 3600000;
+    this._timeWindow = { start, end: now };
+    for (const list of Object.values(this._historyRaw)) {
+      let firstInWindow = list.findIndex(p => p.time > start);
+      if (firstInWindow === -1) firstInWindow = list.length;
+      if (firstInWindow > 1) list.splice(0, firstInWindow - 1);
+    }
+    const series = this._historySeries();
+    for (const key of Object.keys(this._history)) {
+      const entityId = series[key];
+      const raw = entityId ? this._historyRaw[entityId] || [] : [];
+      const factor = this._unitFactor(key.replace(/^outdoor_/, ''), entityId);
+      const converted = factor === 1 ? raw : raw.map(p => ({ time: p.time, value: p.value * factor }));
+      this._history[key] = this._extendToNow(converted, entityId, now, factor);
     }
   }
 
-  async _fetchHistory(entityId, startTime, endTime) {
-    if (!entityId) return [];
-    const uri = `history/period/${startTime.toISOString()}?filter_entity_id=${entityId}&end_time=${endTime.toISOString()}&minimal_response&no_attributes`;
-    const response = await this._hass.callApi('GET', uri);
-    return response?.[0] || [];
-  }
-
   // Append the entity's current value as a final point at `nowMs` so the line
-  // spans the full window even when `minimal_response` collapsed a steady run.
+  // reaches the right edge even when a steady sensor hasn't reported for a
+  // while (HA's own history-graph extends the last state to "now" too).
   // Skips when there's no data, no current numeric reading, or the last point
   // is already essentially at `now` (avoids a zero-length duplicate segment).
-  _extendToNow(processed, entityId, nowMs) {
+  _extendToNow(processed, entityId, nowMs, factor = 1) {
     if (!entityId || !processed.length) return processed;
-    const state = this._hass?.states[entityId]?.state;
-    if (state === undefined || state === 'unknown' || state === 'unavailable') return processed;
-    const value = parseFloat(state);
-    if (isNaN(value)) return processed;
+    const value = this._getNumericState(entityId);
+    if (value === null) return processed;
     const last = processed[processed.length - 1];
     if (nowMs - last.time < 1000) return processed; // already at the edge
-    return [...processed, { time: nowMs, value }];
-  }
-
-  _processHistory(history) {
-    return history
-      .filter(item => item.state && !isNaN(parseFloat(item.state)))
-      .map(item => ({
-        time: new Date(item.last_changed).getTime(),
-        value: parseFloat(item.state)
-      }));
+    return [...processed, { time: nowMs, value: value * factor }];
   }
 
   _getState(entityId) {
@@ -923,9 +1141,43 @@ class AirQualityCard extends HTMLElement {
     return this._hass?.states[entityId]?.state ?? 'unknown';
   }
 
+  // Numeric reading, or null when the entity is missing, unavailable, unknown
+  // or otherwise non-numeric. Never 0: a dead sensor must not read as a clean
+  // (or, for O₂, a lethal) value.
   _getNumericState(entityId) {
-    const state = this._getState(entityId);
-    return parseFloat(state) || 0;
+    const value = parseFloat(this._getState(entityId));
+    return Number.isFinite(value) ? value : null;
+  }
+
+  // Reading of the entity configured under `entityKey` (default
+  // `<metric>_entity`), converted into the unit the metric's thresholds use.
+  _metricValue(metric, entityKey = `${metric}_entity`) {
+    const entityId = this._config[entityKey];
+    if (!entityId) return null;
+    const value = this._getNumericState(entityId);
+    return value === null ? null : value * this._unitFactor(metric, entityId);
+  }
+
+  // Multiplier from the entity's unit into the metric's threshold unit — 1
+  // when there's nothing to convert, the unit is unrecognized, or the user
+  // supplied their own thresholds (those are in the sensor's unit; see
+  // UNIT_CONVERSIONS).
+  _unitFactor(metric, entityId) {
+    const conv = UNIT_CONVERSIONS[metric];
+    if (!conv || !entityId || this._thresholdOverride(metric)) return 1;
+    const unit = normalizeUnit(this._hass?.states[entityId]?.attributes?.unit_of_measurement);
+    return conv.from[unit] ?? 1;
+  }
+
+  // Unit shown next to a converted gas reading: the threshold unit normally,
+  // the sensor's own unit when the user's thresholds are in it.
+  _gasUnit(metric) {
+    const conv = UNIT_CONVERSIONS[metric];
+    if (this._thresholdOverride(metric)) {
+      const unit = this._hass?.states[this._config[`${metric}_entity`]]?.attributes?.unit_of_measurement;
+      if (unit) return normalizeUnit(unit);
+    }
+    return conv.unit;
   }
 
   // Generic ascending-tier lookup. `thresholds` is 4 ascending boundaries;
@@ -949,10 +1201,10 @@ class AirQualityCard extends HTMLElement {
     return padding + clamped * (width - 2 * padding);
   }
 
-  // Resolve the active threshold array for a metric — config override first,
-  // then the metric's default. The metric key matches the key in METRIC_DEFS
-  // (e.g. 'co2' uses `co2_thresholds`; 'temp_c' uses `temperature_thresholds`).
-  _metricThresholds(metric) {
+  // The user's `<x>_thresholds` for a METRIC_DEFS key (e.g. 'co2' →
+  // `co2_thresholds`, 'temp_c' → `temperature_thresholds`) when it's a valid
+  // list of 4 numbers, else null. _metricThresholds falls back to defaults.
+  _thresholdOverride(metric) {
     const overrideKey = {
       co: 'co_thresholds', co2: 'co2_thresholds', pm25: 'pm25_thresholds',
       pm10: 'pm10_thresholds', pm1: 'pm1_thresholds', pm03: 'pm03_thresholds',
@@ -967,7 +1219,11 @@ class AirQualityCard extends HTMLElement {
     if (Array.isArray(override) && override.length === 4 && override.every(n => typeof n === 'number')) {
       return override;
     }
-    return METRIC_DEFS[metric].defaultThresholds;
+    return null;
+  }
+
+  _metricThresholds(metric) {
+    return this._thresholdOverride(metric) || METRIC_DEFS[metric].defaultThresholds;
   }
 
   // Backward-compat proxies for the bug-fix branch's named status helpers.
@@ -1008,17 +1264,22 @@ class AirQualityCard extends HTMLElement {
     if (this._config.tvoc_unit && String(this._config.tvoc_unit).toLowerCase() !== 'auto') {
       return String(this._config.tvoc_unit).toLowerCase() === 'index';
     }
-    // Auto-detect from entity unit_of_measurement
+    // Auto-detect from the entity's unit_of_measurement: Sensirion VOC Index
+    // sensors report no unit at all.
     if (this._hass && this._config.tvoc_entity) {
       const uom = this._hass.states[this._config.tvoc_entity]?.attributes?.unit_of_measurement;
-      if (uom === undefined || uom === null || uom === '' || uom?.toLowerCase() === 'voc index') return true;
-      if (uom === 'ppb' || uom === 'mg/m³') return false;
+      if (uom === undefined || uom === null || uom === '' || String(uom).toLowerCase() === 'voc index') return true;
     }
     return false;
   }
 
+  // Absolute tVOC: show the sensor's real unit. The default tvoc_thresholds
+  // are ppb; µg/m³ or mg/m³ sensors should override them (there's no single
+  // ppb↔mass factor for a VOC mixture).
   _getTVOCUnit() {
-    return this._isVOCIndex() ? '' : 'ppb';
+    if (this._isVOCIndex()) return '';
+    const uom = this._hass?.states[this._config.tvoc_entity]?.attributes?.unit_of_measurement;
+    return uom ? normalizeUnit(uom) : 'ppb';
   }
 
   _tvocMetric() {
@@ -1038,8 +1299,7 @@ class AirQualityCard extends HTMLElement {
     }
     if (this._hass && this._config.nox_entity) {
       const uom = this._hass.states[this._config.nox_entity]?.attributes?.unit_of_measurement;
-      if (uom === undefined || uom === null || uom === '' || uom?.toLowerCase() === 'nox index') return true;
-      if (uom === 'ppb' || uom === 'µg/m³' || uom === 'μg/m³') return false;
+      if (uom === undefined || uom === null || uom === '' || String(uom).toLowerCase() === 'nox index') return true;
     }
     return false;
   }
@@ -1049,22 +1309,23 @@ class AirQualityCard extends HTMLElement {
     // Show whatever the sensor actually reports (e.g. µg/m³). Note the
     // default nox_thresholds assume ppb — µg/m³ users should override them.
     const uom = this._hass?.states[this._config.nox_entity]?.attributes?.unit_of_measurement;
-    return uom || 'ppb';
+    return uom ? normalizeUnit(uom) : 'ppb';
   }
 
   _noxMetric() {
     return this._isNOxIndex() ? 'nox_index' : 'nox_ppb';
   }
 
+  // Radon display unit. Thresholds are always Bq/m³; pCi/L readings are
+  // converted for comparison. Auto-detect reads whichever radon sensor is
+  // configured — a long-term-only setup must not be mistaken for Bq/m³.
   _getRadonUnit() {
-    const unit = this._config.radon_unit;
-    if (unit === 'pCi/L') return 'pCi/L';
+    const unit = normalizeUnit(this._config.radon_unit);
+    if (unit.toLowerCase() === 'pci/l') return 'pCi/L';
     if (unit === 'Bq/m³') return 'Bq/m³';
-    // Auto-detect from entity's unit_of_measurement
-    if (this._config.radon_entity) {
-      const entityUnit = this._hass?.states[this._config.radon_entity]?.attributes?.unit_of_measurement;
-      if (entityUnit && entityUnit.toLowerCase().includes('pci')) return 'pCi/L';
-    }
+    const entityId = this._config.radon_entity || this._config.radon_longterm_entity;
+    const entityUnit = this._hass?.states[entityId]?.attributes?.unit_of_measurement;
+    if (entityUnit && String(entityUnit).toLowerCase().includes('pci')) return 'pCi/L';
     return 'Bq/m³';
   }
 
@@ -1079,55 +1340,60 @@ class AirQualityCard extends HTMLElement {
 
   _formatRadon(value) {
     const unit = this._getRadonUnit();
-    if (unit === 'pCi/L') return `${value.toFixed(1)} pCi/L`;
-    return `${Math.round(value)} Bq/m³`;
+    return `${this._formatNumber(value, unit === 'pCi/L' ? 1 : 0)} ${unit}`;
+  }
+
+  // Short- and long-term radon readings in the display unit (null when
+  // unconfigured or unavailable) plus the higher of the two in Bq/m³.
+  _radonReadings() {
+    const short = this._config.radon_entity ? this._getNumericState(this._config.radon_entity) : null;
+    const long = this._config.radon_longterm_entity ? this._getNumericState(this._config.radon_longterm_entity) : null;
+    const shortBq = short === null ? null : this._getRadonBqm3(short);
+    const longBq = long === null ? null : this._getRadonBqm3(long);
+    const bq = shortBq === null && longBq === null ? null : Math.max(shortBq ?? -Infinity, longBq ?? -Infinity);
+    return { short, long, bq };
   }
 
   _getRadonAdvisory() {
     if (!this._config.radon_entity && !this._config.radon_longterm_entity) return null;
-    const shortRaw = this._config.radon_entity ? this._getNumericState(this._config.radon_entity) : 0;
-    const longRaw = this._config.radon_longterm_entity ? this._getNumericState(this._config.radon_longterm_entity) : 0;
-    const shortBq = this._getRadonBqm3(shortRaw);
-    const longBq = this._getRadonBqm3(longRaw);
-    const bq = Math.max(shortBq, longBq);
-    const raw = shortBq >= longBq ? shortRaw : longRaw;
-    const display = this._formatRadon(raw);
-    const threshold = this._isRadonPciL() ? '4.0 pCi/L' : '148 Bq/m³';
+    const { short, long, bq } = this._radonReadings();
+    if (bq === null) return null;
+    const t = this._metricThresholds('radon');
+    const raw = long === null || (short !== null && this._getRadonBqm3(short) >= this._getRadonBqm3(long)) ? short : long;
+    const valuesStr = short !== null && long !== null
+      ? `${this._t('radon', 'short_term')}: ${this._formatRadon(short)}, ${this._t('radon', 'long_term')}: ${this._formatRadon(long)}`
+      : this._ts('radon', 'subtitle_single', { value: this._formatRadon(raw) });
+    const actionLevel = this._formatRadon(this._isRadonPciL() ? t[2] / 37 : t[2]);
 
-    // Build subtitle with both values when both are configured
-    const bothConfigured = this._config.radon_entity && this._config.radon_longterm_entity;
-    const valuesStr = bothConfigured
-      ? `${this._t('radon', 'short_term')}: ${this._formatRadon(shortRaw)}, ${this._t('radon', 'long_term')}: ${this._formatRadon(longRaw)}`
-      : `Radon at ${display}`;
-
-    if (bq >= 300) return {
+    if (bq >= t[3]) return {
       level: 'danger',
       text: this._t('radon', 'advisory_danger'),
-      subtitle: `${valuesStr} - contact a certified radon mitigator`
+      subtitle: `${valuesStr} - ${this._t('radon', 'action_danger')}`
     };
-    if (bq >= 148) return {
+    if (bq >= t[2]) return {
       level: 'warning',
       text: this._t('radon', 'advisory_warning'),
-      subtitle: `${valuesStr} - EPA recommends mitigation above ${threshold}`
+      subtitle: `${valuesStr} - ${this._ts('radon', 'action_warning', { threshold: actionLevel })}`
     };
-    if (bq >= 100) return {
+    if (bq >= t[1]) return {
       level: 'info',
       text: this._t('radon', 'advisory_info'),
-      subtitle: `${valuesStr} - approaching action level`
+      subtitle: `${valuesStr} - ${this._t('radon', 'action_info')}`
     };
     return null;
   }
 
+  // Temperature unit: explicit `temperature_unit` first, then the sensor's
+  // own unit_of_measurement (an entity can be set to °F in a metric install),
+  // then the HA unit system.
   _isCelsius() {
     const unit = this._config.temperature_unit;
     if (unit === 'C') return true;
     if (unit === 'F') return false;
-    // Auto-detect from Home Assistant unit system
-    try {
-      return this._hass.config.unit_system.temperature === '°C';
-    } catch (e) {
-      return false;
-    }
+    const entityId = this._config.temperature_entity || this._config.outdoor_temperature_entity;
+    const uom = this._hass?.states[entityId]?.attributes?.unit_of_measurement;
+    if (uom === '°C' || uom === '°F') return uom === '°C';
+    return this._hass?.config?.unit_system?.temperature === '°C';
   }
 
   _getTempUnit() {
@@ -1143,25 +1409,51 @@ class AirQualityCard extends HTMLElement {
   }
 
   // Temperature display: whole number by default, one decimal when
-  // `temperature_decimals` is enabled. Returns a string for direct interpolation.
+  // `temperature_decimals` is enabled.
   _formatTemp(value) {
-    return this._config.temperature_decimals ? value.toFixed(1) : String(Math.round(value));
+    return this._formatNumber(value, this._config.temperature_decimals ? 1 : 0);
+  }
+
+  // METRIC_DEFS key for a display metric (tVOC/NOx/temperature pick a table
+  // by sensor mode/unit).
+  _defKey(metric) {
+    if (metric === 'tvoc') return this._tvocMetric();
+    if (metric === 'nox') return this._noxMetric();
+    if (metric === 'temperature') return this._tempMetric();
+    return metric;
+  }
+
+  // Current reading of a display metric in its threshold unit, with its tier
+  // color and status label; null when unconfigured or unavailable. Radon is
+  // the worse of its short- and long-term sensors, in Bq/m³.
+  _metricReading(metric) {
+    let value;
+    if (metric === 'radon') value = this._radonReadings().bq;
+    else value = this._metricValue(metric);
+    if (value === null) return null;
+    const defKey = this._defKey(metric);
+    return { metric, value, color: this._getMetricColor(defKey, value), status: this._getMetricStatus(defKey, value) };
   }
 
   _getOverallStatus() {
-    const co = this._config.co_entity ? this._getNumericState(this._config.co_entity) : 0;
-    const co2 = this._config.co2_entity ? this._getNumericState(this._config.co2_entity) : 0;
-    const pm25 = this._config.pm25_entity ? this._getNumericState(this._config.pm25_entity) : 0;
-    const radonShort = this._config.radon_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_entity)) : 0;
-    const radonLong = this._config.radon_longterm_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_longterm_entity)) : 0;
-    const radon = Math.max(radonShort, radonLong);
-    const c3h8 = this._config.c3h8_entity ? this._getNumericState(this._config.c3h8_entity) : 0;
-    // O2's "unconfigured" fallback must be null, not 0 — 0% O2 is the worst
-    // possible reading, so a 0 default would make an unconfigured sensor
-    // look like a life-threatening emergency.
-    const o2 = this._config.o2_entity ? this._getNumericState(this._config.o2_entity) : null;
+    const T = (m) => this._metricThresholds(m);
+    const co = this._metricValue('co');
+    const c3h8 = this._metricValue('c3h8');
+    // O2's "unconfigured/unavailable" value is null, never 0 — 0% O2 is the
+    // worst possible reading.
+    const o2 = this._metricValue('o2');
+    const dangerous = { status: this._t('status', 'dangerous'), color: '#d32f2f' };
+    const poor = { status: this._t('status', 'poor'), color: '#f44336' };
 
-    // If air_quality_entity is configured, use it
+    // Life-safety first, and above everything else — including a configured
+    // air_quality_entity, which knows nothing about a CO or gas leak.
+    if (co !== null && co > T('co')[2]) return dangerous;
+    if (c3h8 !== null && c3h8 >= T('c3h8')[2]) return dangerous;
+    if (o2 !== null && o2 < T('o2')[0]) return dangerous;
+    if (co !== null && co > T('co')[1]) return poor;
+    if (c3h8 !== null && c3h8 >= T('c3h8')[1]) return poor;
+    if (o2 !== null && o2 < T('o2')[1]) return poor;
+
     if (this._config.air_quality_entity) {
       const quality = this._getState(this._config.air_quality_entity);
       // Numeric index sensors (e.g. Netatmo's health index, #45): with
@@ -1172,7 +1464,7 @@ class AirQualityCard extends HTMLElement {
       if (Array.isArray(aqThresholds) && aqThresholds.length === 4 &&
           aqThresholds.every(n => typeof n === 'number') && Number.isFinite(numeric)) {
         const key = this._tieredValue(numeric, aqThresholds, ['excellent', 'good', 'fair', 'poor', 'very_poor']);
-        const color = this._tieredValue(numeric, aqThresholds, ['#4caf50', '#8bc34a', '#ffc107', '#ff9800', '#f44336']);
+        const color = this._tieredValue(numeric, aqThresholds, SCALE_AIRQUALITY);
         return { status: this._t('status', key), color };
       }
       const statusKey = String(quality || '').toLowerCase().replace(/\s+/g, '_');
@@ -1182,28 +1474,34 @@ class AirQualityCard extends HTMLElement {
       return { status: display, color: this._getQualityColor(quality) };
     }
 
-    // CO is a life-safety metric — always takes priority
-    if (co > 35) return { status: this._t('status', 'dangerous'), color: '#d32f2f' };
-    if (co > 9) return { status: this._t('status', 'poor'), color: '#f44336' };
+    // Radon only degrades the header at the EPA action level and above — it
+    // has its own advisory banner for the lower tiers.
+    const radon = this._radonReadings().bq;
+    if (radon !== null && radon >= T('radon')[3]) return poor;
+    let worst = radon === null ? -1 : radon >= T('radon')[2] ? 3 : 0;
 
-    // Propane is a combustible-gas leak hazard — life-safety like CO
-    if (c3h8 >= 0.42) return { status: this._t('status', 'dangerous'), color: '#d32f2f' };
-    if (c3h8 >= 0.21) return { status: this._t('status', 'poor'), color: '#f44336' };
+    // Every other configured air-quality metric contributes its tier; the
+    // header shows the worst one (it used to look at CO₂ and PM2.5 only).
+    const AIR = ['co', 'c3h8', 'o2', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'no2', 'o3'];
+    for (const metric of AIR) {
+      const reading = this._metricReading(metric);
+      if (reading) worst = Math.max(worst, OVERALL_SEVERITY[reading.color] ?? 0);
+    }
+    if (worst >= 0) {
+      const key = ['excellent', 'good', 'moderate', 'fair', 'poor'][worst];
+      return { status: this._t('status', key), color: SCALE_AIRQUALITY[worst] };
+    }
 
-    // Low O2 is an asphyxiation hazard — life-safety like CO
-    if (o2 !== null && o2 < 16) return { status: this._t('status', 'dangerous'), color: '#d32f2f' };
-    if (o2 !== null && o2 < 19.5) return { status: this._t('status', 'poor'), color: '#f44336' };
-
-    // Radon — only degrades status at EPA action level and above
-    if (radon >= 300) return { status: this._t('status', 'poor'), color: '#f44336' };
-    if (radon >= 148) return { status: this._t('status', 'fair'), color: '#ff9800' };
-
-    // Calculate from CO2 and PM2.5
-    if (co2 > 1500 || pm25 > 35) return { status: this._t('status', 'poor'), color: '#f44336' };
-    if (co2 > 1000 || pm25 > 25) return { status: this._t('status', 'fair'), color: '#ff9800' };
-    if (co2 > 800 || pm25 > 15) return { status: this._t('status', 'moderate'), color: '#ffc107' };
-    if (co2 > 600 || pm25 > 5) return { status: this._t('status', 'good'), color: '#8bc34a' };
-    return { status: this._t('status', 'excellent'), color: '#4caf50' };
+    // No air-quality reading at all (e.g. a temperature-only card, #51): let
+    // the comfort metrics speak for themselves rather than claiming
+    // "Excellent" air nobody measured.
+    let comfort = null;
+    for (const metric of ['temperature', 'humidity', 'noise']) {
+      const reading = this._metricReading(metric);
+      if (reading && (!comfort || (OVERALL_SEVERITY[reading.color] ?? 0) > (OVERALL_SEVERITY[comfort.color] ?? 0))) comfort = reading;
+    }
+    if (comfort) return { status: comfort.status, color: comfort.color };
+    return { status: this._t('status', 'unavailable'), color: '#9e9e9e' };
   }
 
   _getQualityColor(quality) {
@@ -1231,125 +1529,110 @@ class AirQualityCard extends HTMLElement {
     // Life-safety metrics must never be outranked — or truncated out of the
     // chip row — by a comfort metric that happens to share a tier color.
     const PRIORITY_BOOST = { co: 10, c3h8: 10, o2: 10, radon: 5 };
-    const labels = {
-      co: 'CO', radon: 'Radon', co2: 'CO₂', pm25: 'PM2.5', pm10: 'PM10',
-      pm1: 'PM1', pm03: 'PM0.3', pm4: 'PM4', hcho: 'HCHO', tvoc: 'tVOC',
-      nox: 'NOx', no2: 'NO₂', o3: 'O₃', o2: 'O₂', c3h8: 'Propane',
-      noise: this._t('metric', 'noise'), humidity: this._t('metric', 'humidity'),
-      temperature: this._t('metric', 'temperature'), pressure: this._t('metric', 'pressure')
-    };
     const results = [];
     for (const metric of this._getMetricOrder()) {
       // Pressure is informational (and its thresholds assume hPa) — ordinary
       // barometric weather must never read as an air-quality alert.
       if (metric === 'pressure') continue;
-      let value, color, status;
-      if (metric === 'radon') {
-        if (!this._config.radon_entity && !this._config.radon_longterm_entity) continue;
-        const short = this._config.radon_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_entity)) : 0;
-        const long = this._config.radon_longterm_entity ? this._getRadonBqm3(this._getNumericState(this._config.radon_longterm_entity)) : 0;
-        value = Math.max(short, long);
-        if (value <= 0) continue; // both sensors unavailable
-        color = this._getRadonColor(value);
-        status = this._getMetricStatus('radon', value);
-      } else {
-        if (!this._config[`${metric}_entity`]) continue;
-        // Skip unavailable/non-numeric sensors rather than alerting on an
-        // implicit 0 (which reads as 'Too Dry' for bell-curve metrics).
-        value = parseFloat(this._getState(this._config[`${metric}_entity`]));
-        if (!isFinite(value)) continue;
-        if (metric === 'tvoc') {
-          color = this._getTVOCColor(value);
-          status = this._getMetricStatus(this._tvocMetric(), value);
-        } else if (metric === 'nox') {
-          color = this._getNOxColor(value);
-          status = this._getMetricStatus(this._noxMetric(), value);
-        } else if (metric === 'temperature') {
-          color = this._getTempColor(value);
-          status = this._getMetricStatus(this._tempMetric(), value);
-        } else {
-          color = this._getMetricColor(metric, value);
-          status = this._getMetricStatus(metric, value);
-        }
-      }
-      if (CALM_COLORS.includes(color)) continue;
-      results.push({ metric, label: labels[metric], color, status, severity: (SEVERITY[color] || 0) + (PRIORITY_BOOST[metric] || 0) });
+      // Unavailable sensors are skipped rather than alerting on a made-up value.
+      const reading = this._metricReading(metric);
+      if (!reading || CALM_COLORS.includes(reading.color)) continue;
+      results.push({
+        metric, label: this._metricLabel(metric), color: reading.color, status: reading.status,
+        severity: (SEVERITY[reading.color] || 0) + (PRIORITY_BOOST[metric] || 0)
+      });
     }
     return results.sort((a, b) => b.severity - a.severity);
   }
 
+  // Short display name for a metric (graph headers, alert chips).
+  _metricLabel(metric) {
+    const labels = {
+      co: 'CO', radon: 'Radon', co2: 'CO₂', pm25: 'PM2.5', pm10: 'PM10',
+      pm1: 'PM1', pm03: 'PM0.3', pm4: 'PM4', hcho: 'HCHO', tvoc: 'tVOC',
+      nox: 'NOx', no2: 'NO₂', o3: 'O₃', o2: 'O₂', c3h8: 'Propane'
+    };
+    return labels[metric] || this._t('metric', metric);
+  }
+
+  // Outdoor PM2.5/CO₂ against indoor, for the "keep windows closed" override.
+  // With an indoor reading, outdoor is worse when it's higher. Without one
+  // (unconfigured or unavailable) a plain `outdoor > indoor` comparison is
+  // meaningless (#35), so outdoor counts as worse once it reaches the
+  // metric's elevated tier on its own.
+  _outdoorComparison() {
+    const T = (m) => this._metricThresholds(m);
+    const pm25 = this._metricValue('pm25');
+    const co2 = this._metricValue('co2');
+    const outdoorPm25 = this._metricValue('pm25', 'outdoor_pm25_entity');
+    const outdoorCo2 = this._metricValue('co2', 'outdoor_co2_entity');
+    const pm25Worse = outdoorPm25 !== null && (pm25 !== null ? outdoorPm25 > pm25 : outdoorPm25 >= T('pm25')[2]);
+    const co2Worse = outdoorCo2 !== null && (co2 !== null ? outdoorCo2 > co2 : outdoorCo2 >= T('co2')[2]);
+    return { outdoorPm25, outdoorCo2, pm25Worse, co2Worse };
+  }
+
   // Translation-key-based recommendation dispatcher. Used internally for icon
   // lookup and subtitle generation. `_getRecommendation()` translates the key
-  // for display.
+  // for display. Every cutoff is a tier boundary of the metric's (possibly
+  // user-overridden) thresholds, so the recommendation always agrees with the
+  // per-metric badges (#59).
   _getRecommendationKey() {
     // Outdoor-only mode: recommendations assume an indoor context (open window,
     // run air purifier, etc.) and are nonsensical when monitoring ambient air.
     if (this._outdoorOnly) return null;
-    const co = this._config.co_entity ? this._getNumericState(this._config.co_entity) : 0;
-    const co2 = this._config.co2_entity ? this._getNumericState(this._config.co2_entity) : 0;
-    const pm25 = this._config.pm25_entity ? this._getNumericState(this._config.pm25_entity) : 0;
-    const pm10 = this._config.pm10_entity ? this._getNumericState(this._config.pm10_entity) : 0;
-    const hcho = this._config.hcho_entity ? this._getNumericState(this._config.hcho_entity) : 0;
-    const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : 0;
-    const no2 = this._config.no2_entity ? this._getNumericState(this._config.no2_entity) : 0;
-    const o3 = this._config.o3_entity ? this._getNumericState(this._config.o3_entity) : 0;
-    const c3h8 = this._config.c3h8_entity ? this._getNumericState(this._config.c3h8_entity) : 0;
-    // Unlike other gases, O2's "unconfigured" fallback must be null, not 0 —
-    // 0% O2 is the worst possible reading (see _getOverallStatus).
-    const o2 = this._config.o2_entity ? this._getNumericState(this._config.o2_entity) : null;
-    const humidity = this._config.humidity_entity ? this._getNumericState(this._config.humidity_entity) : 45;
-    const noise = this._config.noise_entity ? this._getNumericState(this._config.noise_entity) : 0;
+    const T = (m) => this._metricThresholds(m);
+    // `above(value, metric, tier)`: value is past that tier boundary. null
+    // (unconfigured/unavailable) is never above anything.
+    const above = (value, metric, tier) => value !== null && value > T(metric)[tier];
+    const co = this._metricValue('co');
+    const co2 = this._metricValue('co2');
+    const pm25 = this._metricValue('pm25');
+    const pm10 = this._metricValue('pm10');
+    const hcho = this._metricValue('hcho');
+    const tvoc = this._metricValue('tvoc');
+    const no2 = this._metricValue('no2');
+    const o3 = this._metricValue('o3');
+    const c3h8 = this._metricValue('c3h8');
+    const o2 = this._metricValue('o2');
+    const humidity = this._metricValue('humidity');
+    const noise = this._metricValue('noise');
 
-    // Outdoor-worse detection drives the "keep windows closed" override.
-    // When an indoor counterpart exists, compare the two (don't ventilate if
-    // outside is worse). When it doesn't (e.g. indoor CO₂ + outdoor PM2.5 only),
-    // a plain `outdoor > indoor` comparison would always fire because the
-    // missing indoor value defaults to 0 (#35). Instead fall back to an
-    // absolute "concerning" threshold — the metric's elevated tier boundary.
-    const outdoorCo2 = this._config.outdoor_co2_entity ? this._getNumericState(this._config.outdoor_co2_entity) : null;
-    const outdoorPm25 = this._config.outdoor_pm25_entity ? this._getNumericState(this._config.outdoor_pm25_entity) : null;
-    const pm25Worse = outdoorPm25 !== null && (this._config.pm25_entity
-      ? outdoorPm25 > pm25
-      : outdoorPm25 >= this._metricThresholds('pm25')[2]);
-    const co2Worse = outdoorCo2 !== null && (this._config.co2_entity
-      ? outdoorCo2 > co2
-      : outdoorCo2 >= this._metricThresholds('co2')[2]);
-    const outdoorIsWorse = pm25Worse || co2Worse;
-
-    // CO life-safety first (never suppressed by outdoor override)
-    if (co > 100) return 'co_danger';
-    if (co > 35) return 'co_warning';
-
-    // Propane leak — explosive hazard, life-safety like CO
-    if (c3h8 >= 0.42) return 'propane_danger';
-    if (c3h8 >= 0.21) return 'propane_warning';
-
-    // Low O2 — asphyxiation hazard, life-safety like CO
-    if (o2 !== null && o2 < 16) return 'o2_danger';
-    if (o2 !== null && o2 < 19.5) return 'o2_warning';
+    // Life-safety first; never suppressed by the outdoor override.
+    if (above(co, 'co', 3)) return 'co_danger';
+    if (above(co, 'co', 2)) return 'co_warning';
+    if (c3h8 !== null && c3h8 >= T('c3h8')[2]) return 'propane_danger';
+    if (c3h8 !== null && c3h8 >= T('c3h8')[1]) return 'propane_warning';
+    if (o2 !== null && o2 < T('o2')[0]) return 'o2_danger';
+    if (o2 !== null && o2 < T('o2')[1]) return 'o2_warning';
+    // Elevated CO comes next, ahead of particulates: an air purifier does
+    // nothing for CO, and outdoor air is still the remedy.
+    if (above(co, 'co', 1)) return 'co_elevated';
 
     let key = 'all_good';
-    if (co2 > 1500) key = 'ventilate_now';
-    else if (pm25 > 35) key = 'run_air_purifier';
-    else if (pm10 > 150) key = 'run_air_purifier';
-    else if (hcho > 100) key = 'ventilate_formaldehyde';
-    else if (no2 > 200) key = 'ventilate_no2';
-    else if (o3 > 240) key = 'ventilate_o3';
-    else if (tvoc > 500) key = 'ventilate_vocs';
-    else if (pm25 > 25 && co2 > 1000) key = 'air_purifier_ventilate';
-    else if (pm25 > 25) key = 'run_air_purifier';
-    else if (pm10 > 75) key = 'consider_air_purifier';
-    else if (co2 > 1000) key = 'open_window';
-    else if (co > 9) key = 'co_elevated';
-    else if (humidity < 30) key = 'too_dry';
-    else if (humidity > 60) key = 'too_humid';
-    else if (noise > 70) key = 'reduce_noise';
-    else if (co2 > 800 || pm25 > 15) key = 'consider_ventilating';
+    if (above(co2, 'co2', 3)) key = 'ventilate_now';
+    else if (above(pm25, 'pm25', 3)) key = 'run_air_purifier';
+    else if (above(pm10, 'pm10', 3)) key = 'run_air_purifier';
+    else if (above(hcho, 'hcho', 2)) key = 'ventilate_formaldehyde';
+    else if (above(no2, 'no2', 3)) key = 'ventilate_no2';
+    else if (above(o3, 'o3', 3)) key = 'ventilate_o3';
+    // tVOC: the elevated tier of whichever table applies — 500 ppb, or 250
+    // on the 1–500 VOC Index (a fixed 500 could never fire in index mode).
+    else if (above(tvoc, this._tvocMetric(), 2)) key = 'ventilate_vocs';
+    else if (above(pm25, 'pm25', 2) && above(co2, 'co2', 2)) key = 'air_purifier_ventilate';
+    else if (above(pm25, 'pm25', 2)) key = 'run_air_purifier';
+    else if (above(pm10, 'pm10', 2)) key = 'consider_air_purifier';
+    else if (above(co2, 'co2', 2)) key = 'open_window';
+    else if (humidity !== null && humidity < T('humidity')[0]) key = 'too_dry';
+    else if (above(humidity, 'humidity', 3)) key = 'too_humid';
+    else if (above(noise, 'noise', 3)) key = 'reduce_noise';
+    else if (above(co2, 'co2', 1) || above(pm25, 'pm25', 1)) key = 'consider_ventilating';
 
-    // CO/propane/O2 recommendations are intentionally excluded — they're always life-safety
-    const ventilationKeys = ['ventilate_now', 'open_window', 'consider_ventilating', 'air_purifier_ventilate', 'ventilate_formaldehyde', 'ventilate_vocs', 'ventilate_no2', 'ventilate_o3', 'co_elevated'];
-    if (outdoorIsWorse && ventilationKeys.includes(key)) {
-      if (pm25 > 25) return 'run_air_purifier';
+    // Ventilation advice flips when outdoor air is worse. CO/propane/O2 keys
+    // are intentionally absent — they're life-safety and returned above.
+    const ventilationKeys = ['ventilate_now', 'open_window', 'consider_ventilating', 'air_purifier_ventilate', 'ventilate_formaldehyde', 'ventilate_vocs', 'ventilate_no2', 'ventilate_o3'];
+    const { pm25Worse, co2Worse } = this._outdoorComparison();
+    if ((pm25Worse || co2Worse) && ventilationKeys.includes(key)) {
+      if (above(pm25, 'pm25', 2)) return 'run_air_purifier';
       return 'keep_windows_closed';
     }
     return key;
@@ -1402,9 +1685,13 @@ class AirQualityCard extends HTMLElement {
   _renderCompact() {
     const expandable = this._isExpandable();
     // In expandable mode the tap is reserved for expand/collapse, so any
-    // configured tap_action is ignored while collapsed.
-    const hasAction = !!this._config.tap_action && !expandable;
-    const clickable = hasAction || expandable;
+    // configured tap_action is ignored while collapsed; hold and double-tap
+    // actions still work.
+    const tap = expandable ? () => this._toggleExpanded()
+      : this._config.tap_action ? () => this._fireAction('tap') : null;
+    const hold = this._config.hold_action ? () => this._fireAction('hold') : null;
+    const doubleTap = this._config.double_tap_action ? () => this._fireAction('double_tap') : null;
+    const clickable = !!(tap || hold || doubleTap);
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -1422,6 +1709,10 @@ class AirQualityCard extends HTMLElement {
         ${clickable ? `
         ha-card.compact:hover {
           background: rgba(var(--rgb-primary-text-color, 0, 0, 0), 0.04);
+        }
+        ha-card.compact:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 2px;
         }
         ` : ''}
         .compact-row {
@@ -1484,47 +1775,22 @@ class AirQualityCard extends HTMLElement {
           flex: 0 0 auto;
         }
       </style>
-      <ha-card class="compact">
+      <ha-card class="compact"${clickable ? ' role="button" tabindex="0"' : ''}${expandable ? ' aria-expanded="false"' : ''}>
         <div class="compact-row">
           <span class="compact-left">
             ${expandable ? '<ha-icon class="expand-chevron" icon="mdi:chevron-down"></ha-icon>' : ''}
-            <span class="title">${this._config.name}</span>
+            <span class="title">${escapeHtml(this._config.name)}</span>
           </span>
           ${this._config.compact_alerts !== false ? '<div class="alert-chips" id="alert-chips"></div>' : ''}
           <div class="status-badge" id="status-badge">
             <ha-icon id="status-icon" icon="mdi:leaf"></ha-icon>
-            <span id="status-text">Loading…</span>
+            <span id="status-text">${this._t('label', 'loading')}</span>
           </div>
         </div>
       </ha-card>
     `;
     const card = this.shadowRoot.querySelector('ha-card');
-    if (card && expandable) {
-      card.addEventListener('click', () => this._toggleExpanded());
-      return; // expand owns the tap; skip tap/hold action wiring
-    }
-    if (card && hasAction) {
-      card.addEventListener('click', () => this._fireAction('tap'));
-    }
-    if (card && this._config.hold_action) {
-      // Distinguish a hold (>500ms) from a tap
-      let timer = null;
-      let held = false;
-      const start = () => {
-        held = false;
-        timer = setTimeout(() => { held = true; this._fireAction('hold'); }, 500);
-      };
-      const end = () => { if (timer) { clearTimeout(timer); timer = null; } };
-      card.addEventListener('mousedown', start);
-      card.addEventListener('mouseup', end);
-      card.addEventListener('mouseleave', end);
-      card.addEventListener('touchstart', start, { passive: true });
-      card.addEventListener('touchend', end);
-      // Suppress the tap action when a hold fired
-      card.addEventListener('click', (e) => {
-        if (held) { e.stopImmediatePropagation(); held = false; }
-      }, true);
-    }
+    if (card && clickable) this._bindActions(card, { tap, hold, doubleTap });
   }
 
   _initialRender() {
@@ -1532,25 +1798,6 @@ class AirQualityCard extends HTMLElement {
       this._renderCompact();
       return;
     }
-    const showCO = !!this._config.co_entity;
-    const showRadon = !!(this._config.radon_entity || this._config.radon_longterm_entity);
-    const showCO2 = !!this._config.co2_entity;
-    const showPM25 = !!this._config.pm25_entity;
-    const showPM10 = !!this._config.pm10_entity;
-    const showPM1 = !!this._config.pm1_entity;
-    const showPM03 = !!this._config.pm03_entity;
-    const showHCHO = !!this._config.hcho_entity;
-    const showTVOC = !!this._config.tvoc_entity;
-    const showPM4 = !!this._config.pm4_entity;
-    const showNOx = !!this._config.nox_entity;
-    const showO2 = !!this._config.o2_entity;
-    const showNO2 = !!this._config.no2_entity;
-    const showO3 = !!this._config.o3_entity;
-    const showC3H8 = !!this._config.c3h8_entity;
-    const showHumidity = !!this._config.humidity_entity;
-    const showTemp = !!this._config.temperature_entity;
-    const showPressure = !!this._config.pressure_entity;
-    const showNoise = !!this._config.noise_entity;
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -1569,12 +1816,18 @@ class AirQualityCard extends HTMLElement {
            so lift the expanded card above them — a pop-over, not a reflow. */
         ${this._isExpandable() ? ':host { position: relative; z-index: 8; }' : ''}
 
+        /* <ha-card> supplies the themed background, border and radius; the
+           inner wrapper only pads (and pins the text color for themes that
+           style ha-card's color differently). */
         .card {
-          background: var(--ha-card-background, var(--card-background-color, #fff));
-          border-radius: var(--ha-card-border-radius, 12px);
           padding: 16px;
           color: var(--primary-text-color);
-          font-family: var(--paper-font-body1_-_font-family);
+        }
+
+        .graph-container:focus-visible,
+        .header--collapsible:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 2px;
         }
 
         .header {
@@ -1921,13 +2174,13 @@ class AirQualityCard extends HTMLElement {
 
       <ha-card>
         <div class="card">
-          <div class="header${this._isExpandable() ? ' header--collapsible' : ''}" id="card-header">
+          <div class="header${this._isExpandable() ? ' header--collapsible' : ''}" id="card-header"${this._isExpandable() ? ' role="button" tabindex="0" aria-expanded="true"' : ''}>
             <span class="title">
-              ${this._isExpandable() ? '<ha-icon class="collapse-chevron" icon="mdi:chevron-up"></ha-icon>' : ''}${this._config.name}
+              ${this._isExpandable() ? '<ha-icon class="collapse-chevron" icon="mdi:chevron-up"></ha-icon>' : ''}${escapeHtml(this._config.name)}
             </span>
             <div class="status-badge" id="status-badge">
               <ha-icon id="status-icon" icon="mdi:leaf"></ha-icon>
-              <span id="status-text">Good</span>
+              <span id="status-text">${this._t('label', 'loading')}</span>
             </div>
           </div>
 
@@ -1935,11 +2188,11 @@ class AirQualityCard extends HTMLElement {
           <div class="recommendation" id="recommendation">
             <ha-icon id="rec-icon" icon="mdi:check-circle"></ha-icon>
             <div class="recommendation-text">
-              <div class="recommendation-title" id="rec-title">All Good</div>
-              <div class="recommendation-subtitle" id="rec-subtitle">Air quality is within healthy limits</div>
+              <div class="recommendation-title" id="rec-title"></div>
+              <div class="recommendation-subtitle" id="rec-subtitle"></div>
             </div>
             ${this._config.recommendation_action ? `
-            <button class="rec-action" id="rec-action" style="display:none" title="${this._t('editor', 'recommendation_action')}">
+            <button class="rec-action" id="rec-action" style="display:none" title="${escapeHtml(this._t('editor', 'recommendation_action'))}" aria-label="${escapeHtml(this._t('editor', 'recommendation_action'))}">
               <ha-icon id="rec-action-icon" icon="mdi:play-circle"></ha-icon>
             </button>
             ` : ''}
@@ -1955,405 +2208,7 @@ class AirQualityCard extends HTMLElement {
           </div>
 
           <div class="graphs">
-            ${showCO ? `
-            <div class="graph-container" id="co-graph-container" data-entity="${this._config.co_entity}">
-              <div class="graph-header">
-                <span class="graph-label">CO</span>
-                <span class="graph-value" id="co-value">-- <span class="unit">ppm</span><span class="status" id="co-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="co-graph">
-                  <svg id="co-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="co-cursor"></div>
-                <div class="graph-tooltip" id="co-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="co-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showRadon ? `
-            <div class="graph-container" id="radon-graph-container" data-entity="${this._config.radon_entity || this._config.radon_longterm_entity}">
-              <div class="graph-header">
-                <span class="graph-label">Radon</span>
-                <span class="graph-value" id="radon-value">-- <span class="unit">${this._getRadonUnit()}</span><span class="status" id="radon-status"></span></span>
-              </div>
-              ${this._config.radon_longterm_entity ? `<div class="graph-value-secondary" id="radon-lt-value">LT: -- <span class="unit">${this._getRadonUnit()}</span></div>` : ''}
-              <div class="graph-wrapper">
-                <div class="graph" id="radon-graph">
-                  <svg id="radon-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="radon-cursor"></div>
-                <div class="graph-tooltip" id="radon-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  ${this._config.radon_longterm_entity ? `<div class="graph-tooltip-outdoor"></div>` : ''}
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="radon-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showCO2 ? `
-            <div class="graph-container" id="co2-graph-container" data-entity="${this._config.co2_entity}">
-              <div class="graph-header">
-                <span class="graph-label">CO₂</span>
-                <span class="graph-value" id="co2-value">-- <span class="unit">ppm</span><span class="status" id="co2-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="co2-graph">
-                  <svg id="co2-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="co2-cursor"></div>
-                <div class="graph-tooltip" id="co2-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="co2-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showPM25 ? `
-            <div class="graph-container" id="pm25-graph-container" data-entity="${this._config.pm25_entity}">
-              <div class="graph-header">
-                <span class="graph-label">PM2.5</span>
-                <span class="graph-value" id="pm25-value">-- <span class="unit">μg/m³</span><span class="status" id="pm25-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="pm25-graph">
-                  <svg id="pm25-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="pm25-cursor"></div>
-                <div class="graph-tooltip" id="pm25-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="pm25-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showPM10 ? `
-            <div class="graph-container" id="pm10-graph-container" data-entity="${this._config.pm10_entity}">
-              <div class="graph-header">
-                <span class="graph-label">PM10</span>
-                <span class="graph-value" id="pm10-value">-- <span class="unit">μg/m³</span><span class="status" id="pm10-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="pm10-graph">
-                  <svg id="pm10-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="pm10-cursor"></div>
-                <div class="graph-tooltip" id="pm10-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="pm10-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showPM1 ? `
-            <div class="graph-container" id="pm1-graph-container" data-entity="${this._config.pm1_entity}">
-              <div class="graph-header">
-                <span class="graph-label">PM1</span>
-                <span class="graph-value" id="pm1-value">-- <span class="unit">μg/m³</span><span class="status" id="pm1-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="pm1-graph">
-                  <svg id="pm1-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="pm1-cursor"></div>
-                <div class="graph-tooltip" id="pm1-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="pm1-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showPM03 ? `
-            <div class="graph-container" id="pm03-graph-container" data-entity="${this._config.pm03_entity}">
-              <div class="graph-header">
-                <span class="graph-label">PM0.3</span>
-                <span class="graph-value" id="pm03-value">-- <span class="unit">p/0.1L</span><span class="status" id="pm03-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="pm03-graph">
-                  <svg id="pm03-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="pm03-cursor"></div>
-                <div class="graph-tooltip" id="pm03-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="pm03-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showHCHO ? `
-            <div class="graph-container" id="hcho-graph-container" data-entity="${this._config.hcho_entity}">
-              <div class="graph-header">
-                <span class="graph-label">HCHO / CH₂O</span>
-                <span class="graph-value" id="hcho-value">-- <span class="unit">ppb</span><span class="status" id="hcho-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="hcho-graph">
-                  <svg id="hcho-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="hcho-cursor"></div>
-                <div class="graph-tooltip" id="hcho-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="hcho-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showTVOC ? `
-            <div class="graph-container" id="tvoc-graph-container" data-entity="${this._config.tvoc_entity}">
-              <div class="graph-header">
-                <span class="graph-label">tVOC</span>
-                <span class="graph-value" id="tvoc-value">-- <span class="unit">${this._config.tvoc_unit === 'index' ? '' : 'ppb'}</span><span class="status" id="tvoc-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="tvoc-graph">
-                  <svg id="tvoc-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="tvoc-cursor"></div>
-                <div class="graph-tooltip" id="tvoc-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="tvoc-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showPM4 ? `
-            <div class="graph-container" id="pm4-graph-container" data-entity="${this._config.pm4_entity}">
-              <div class="graph-header">
-                <span class="graph-label">PM4</span>
-                <span class="graph-value" id="pm4-value">-- <span class="unit">μg/m³</span><span class="status" id="pm4-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="pm4-graph">
-                  <svg id="pm4-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="pm4-cursor"></div>
-                <div class="graph-tooltip" id="pm4-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="pm4-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showNOx ? `
-            <div class="graph-container" id="nox-graph-container" data-entity="${this._config.nox_entity}">
-              <div class="graph-header">
-                <span class="graph-label">NOx</span>
-                <span class="graph-value" id="nox-value">-- <span class="unit">${this._getNOxUnit()}</span><span class="status" id="nox-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="nox-graph">
-                  <svg id="nox-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="nox-cursor"></div>
-                <div class="graph-tooltip" id="nox-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="nox-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showC3H8 ? `
-            <div class="graph-container" id="c3h8-graph-container" data-entity="${this._config.c3h8_entity}">
-              <div class="graph-header">
-                <span class="graph-label">Propane / C₃H₈</span>
-                <span class="graph-value" id="c3h8-value">-- <span class="unit">%</span><span class="status" id="c3h8-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="c3h8-graph">
-                  <svg id="c3h8-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="c3h8-cursor"></div>
-                <div class="graph-tooltip" id="c3h8-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="c3h8-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showO2 ? `
-            <div class="graph-container" id="o2-graph-container" data-entity="${this._config.o2_entity}">
-              <div class="graph-header">
-                <span class="graph-label">O₂</span>
-                <span class="graph-value" id="o2-value">-- <span class="unit">%</span><span class="status" id="o2-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="o2-graph">
-                  <svg id="o2-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="o2-cursor"></div>
-                <div class="graph-tooltip" id="o2-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="o2-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showNO2 ? `
-            <div class="graph-container" id="no2-graph-container" data-entity="${this._config.no2_entity}">
-              <div class="graph-header">
-                <span class="graph-label">NO₂</span>
-                <span class="graph-value" id="no2-value">-- <span class="unit">µg/m³</span><span class="status" id="no2-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="no2-graph">
-                  <svg id="no2-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="no2-cursor"></div>
-                <div class="graph-tooltip" id="no2-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="no2-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showO3 ? `
-            <div class="graph-container" id="o3-graph-container" data-entity="${this._config.o3_entity}">
-              <div class="graph-header">
-                <span class="graph-label">O₃</span>
-                <span class="graph-value" id="o3-value">-- <span class="unit">µg/m³</span><span class="status" id="o3-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="o3-graph">
-                  <svg id="o3-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="o3-cursor"></div>
-                <div class="graph-tooltip" id="o3-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="o3-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showNoise ? `
-            <div class="graph-container" id="noise-graph-container" data-entity="${this._config.noise_entity}">
-              <div class="graph-header">
-                <span class="graph-label">${this._t('metric', 'noise')}</span>
-                <span class="graph-value" id="noise-value">-- <span class="unit">dB</span><span class="status" id="noise-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="noise-graph">
-                  <svg id="noise-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="noise-cursor"></div>
-                <div class="graph-tooltip" id="noise-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="noise-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showHumidity ? `
-            <div class="graph-container" id="humidity-graph-container" data-entity="${this._config.humidity_entity}">
-              <div class="graph-header">
-                <span class="graph-label">${this._t('metric', 'humidity')}</span>
-                <span class="graph-value" id="humidity-value">-- <span class="unit">%</span><span class="status" id="humidity-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="humidity-graph">
-                  <svg id="humidity-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="humidity-cursor"></div>
-                <div class="graph-tooltip" id="humidity-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="humidity-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showTemp ? `
-            <div class="graph-container" id="temperature-graph-container" data-entity="${this._config.temperature_entity}">
-              <div class="graph-header">
-                <span class="graph-label">${this._t('metric', 'temperature')}</span>
-                <span class="graph-value" id="temperature-value">-- <span class="unit">${this._getTempUnit()}</span><span class="status" id="temperature-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="temperature-graph">
-                  <svg id="temperature-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="temperature-cursor"></div>
-                <div class="graph-tooltip" id="temperature-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="temperature-time-axis"></div>
-            </div>
-            ` : ''}
-
-            ${showPressure ? `
-            <div class="graph-container" id="pressure-graph-container" data-entity="${this._config.pressure_entity}">
-              <div class="graph-header">
-                <span class="graph-label">${this._t('metric', 'pressure')}</span>
-                <span class="graph-value" id="pressure-value">-- <span class="unit">hPa</span><span class="status" id="pressure-status"></span></span>
-              </div>
-              <div class="graph-wrapper">
-                <div class="graph" id="pressure-graph">
-                  <svg id="pressure-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
-                </div>
-                <div class="graph-cursor" id="pressure-cursor"></div>
-                <div class="graph-tooltip" id="pressure-tooltip">
-                  <div class="graph-tooltip-value"></div>
-                  <div class="graph-tooltip-outdoor"></div>
-                  <div class="graph-tooltip-time"></div>
-                </div>
-              </div>
-              <div class="graph-time-axis" id="pressure-time-axis"></div>
-            </div>
-            ` : ''}
+            ${GRAPH_ORDER.filter(m => this._graphEntity(m)).map(m => this._graphBlockHtml(m)).join('')}
           </div>
         </div>
       </ha-card>
@@ -2371,8 +2226,43 @@ class AirQualityCard extends HTMLElement {
 
     if (this._isExpandable()) {
       const header = this.shadowRoot.getElementById('card-header');
-      if (header) header.addEventListener('click', () => this._toggleExpanded());
+      if (header) this._bindActivation(header, () => this._toggleExpanded());
     }
+
+    this._setupGraphInteractions();
+  }
+
+  // Entity behind a metric's graph (radon falls back to its long-term sensor).
+  _graphEntity(metric) {
+    if (metric === 'radon') return this._config.radon_entity || this._config.radon_longterm_entity;
+    return this._config[`${metric}_entity`];
+  }
+
+  _graphBlockHtml(metric) {
+    const entityId = this._graphEntity(metric);
+    const label = GRAPH_LABELS[metric] || this._metricLabel(metric);
+    // Radon's overlay is its long-term sensor; everything else's is outdoor.
+    const hasOverlay = metric !== 'radon' || !!(this._config.radon_entity && this._config.radon_longterm_entity);
+    return `
+            <div class="graph-container" id="${metric}-graph-container" data-entity="${escapeHtml(entityId)}" role="button" tabindex="0" aria-label="${escapeHtml(label)}">
+              <div class="graph-header">
+                <span class="graph-label">${escapeHtml(label)}</span>
+                <span class="graph-value" id="${metric}-value">--</span>
+              </div>
+              ${metric === 'radon' && this._config.radon_longterm_entity ? '<div class="graph-value-secondary" id="radon-lt-value"></div>' : ''}
+              <div class="graph-wrapper">
+                <div class="graph" id="${metric}-graph">
+                  <svg id="${metric}-svg" viewBox="0 0 300 50" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="graph-cursor" id="${metric}-cursor"></div>
+                <div class="graph-tooltip" id="${metric}-tooltip">
+                  <div class="graph-tooltip-value"></div>
+                  ${hasOverlay ? '<div class="graph-tooltip-outdoor"></div>' : ''}
+                  <div class="graph-tooltip-time"></div>
+                </div>
+              </div>
+              <div class="graph-time-axis" id="${metric}-time-axis"></div>
+            </div>`;
   }
 
   // Fire the configured recommendation action via HA's standard action handler.
@@ -2395,26 +2285,7 @@ class AirQualityCard extends HTMLElement {
   _updateStates() {
     if (!this._hass || !this._rendered) return;
 
-    const co = this._config.co_entity ? this._getNumericState(this._config.co_entity) : null;
-    const co2 = this._config.co2_entity ? this._getNumericState(this._config.co2_entity) : null;
-    const pm25 = this._config.pm25_entity ? this._getNumericState(this._config.pm25_entity) : null;
-    const pm10 = this._config.pm10_entity ? this._getNumericState(this._config.pm10_entity) : null;
-    const pm1 = this._config.pm1_entity ? this._getNumericState(this._config.pm1_entity) : null;
-    const pm03 = this._config.pm03_entity ? this._getNumericState(this._config.pm03_entity) : null;
-    const hcho = this._config.hcho_entity ? this._getNumericState(this._config.hcho_entity) : null;
-    const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : null;
-    const pm4 = this._config.pm4_entity ? this._getNumericState(this._config.pm4_entity) : null;
-    const nox = this._config.nox_entity ? this._getNumericState(this._config.nox_entity) : null;
-    const o2 = this._config.o2_entity ? this._getNumericState(this._config.o2_entity) : null;
-    const no2 = this._config.no2_entity ? this._getNumericState(this._config.no2_entity) : null;
-    const o3 = this._config.o3_entity ? this._getNumericState(this._config.o3_entity) : null;
-    const c3h8 = this._config.c3h8_entity ? this._getNumericState(this._config.c3h8_entity) : null;
-    const humidity = this._config.humidity_entity ? this._getNumericState(this._config.humidity_entity) : null;
-    const temp = this._config.temperature_entity ? this._getNumericState(this._config.temperature_entity) : null;
-    const pressure = this._config.pressure_entity ? this._getNumericState(this._config.pressure_entity) : null;
-    const noise = this._config.noise_entity ? this._getNumericState(this._config.noise_entity) : null;
     const recKey = this._getRecommendationKey();
-    const recommendation = this._t('recommendation', recKey);
     const overall = this._getOverallStatus();
 
     // Update status badge
@@ -2437,175 +2308,16 @@ class AirQualityCard extends HTMLElement {
       const shown = abnormal.slice(0, 4);
       const extra = abnormal.length - shown.length;
       chipsEl.innerHTML = shown.map(c =>
-        `<span class="alert-chip" style="background:${c.color}22;color:${c.color}" title="${c.label}: ${c.status}">${c.label}</span>`
+        `<span class="alert-chip" style="background:${c.color}22;color:${c.color}" title="${escapeHtml(`${c.label}: ${c.status}`)}">${escapeHtml(c.label)}</span>`
       ).join('') + (extra > 0 ? `<span class="alert-chip alert-chip--more">+${extra}</span>` : '');
     }
 
     // Compact mode only renders the status badge — skip the rest of the DOM updates
     if (this._isCompact()) return;
 
-    // Update recommendation
-    const recIcon = this.shadowRoot.getElementById('rec-icon');
-    const recTitle = this.shadowRoot.getElementById('rec-title');
-    const recSubtitle = this.shadowRoot.getElementById('rec-subtitle');
-    const recContainer = this.shadowRoot.getElementById('recommendation');
-
-    if (recIcon && recommendation) {
-      recIcon.setAttribute('icon', this._getRecommendationIcon(recKey));
-      recTitle.textContent = recommendation;
-
-      let subtitle = '';
-      if (recKey === 'co_danger') {
-        subtitle = co !== null ? this._ts('subtitle', 'co_danger', { value: co.toFixed(0) }) : this._t('subtitle', 'co_danger_unknown');
-      } else if (recKey === 'co_warning') {
-        subtitle = co !== null ? this._ts('subtitle', 'co_warning', { value: co.toFixed(0) }) : this._t('subtitle', 'co_warning_unknown');
-      } else if (recKey === 'co_elevated') {
-        subtitle = co !== null ? this._ts('subtitle', 'co_elevated', { value: co.toFixed(0) }) : this._t('subtitle', 'co_elevated_unknown');
-      } else if (recKey === 'propane_danger') {
-        subtitle = c3h8 !== null ? this._ts('subtitle', 'propane_danger', { value: c3h8.toFixed(2) }) : this._t('subtitle', 'propane_danger_unknown');
-      } else if (recKey === 'propane_warning') {
-        subtitle = c3h8 !== null ? this._ts('subtitle', 'propane_warning', { value: c3h8.toFixed(2) }) : this._t('subtitle', 'propane_warning_unknown');
-      } else if (recKey === 'o2_danger') {
-        subtitle = o2 !== null ? this._ts('subtitle', 'o2_danger', { value: o2.toFixed(1) }) : this._t('subtitle', 'o2_danger_unknown');
-      } else if (recKey === 'o2_warning') {
-        subtitle = o2 !== null ? this._ts('subtitle', 'o2_warning', { value: o2.toFixed(1) }) : this._t('subtitle', 'o2_warning_unknown');
-      } else if (recKey === 'all_good') {
-        subtitle = this._t('subtitle', 'air_quality_healthy');
-      } else if (recKey === 'run_air_purifier') {
-        if (pm25 !== null && pm25 > 35) subtitle = this._ts('subtitle', 'purifier_pm25', { value: pm25.toFixed(0) });
-        else if (pm10 !== null && pm10 > 150) subtitle = this._ts('subtitle', 'purifier_pm10', { value: pm10.toFixed(0) });
-        else if (pm25 !== null) subtitle = this._ts('subtitle', 'purifier_pm25', { value: pm25.toFixed(0) });
-        else subtitle = this._t('subtitle', 'purifier_generic');
-      } else if (recKey === 'consider_air_purifier' && pm10 !== null) {
-        subtitle = this._ts('subtitle', 'consider_purifier_pm10', { value: pm10.toFixed(0) });
-      } else if (recKey === 'open_window' && co2 !== null) {
-        subtitle = this._ts('subtitle', 'open_window_co2', { value: Math.round(co2) });
-      } else if (recKey === 'air_purifier_ventilate' && co2 !== null && pm25 !== null) {
-        subtitle = this._ts('subtitle', 'purifier_ventilate', { co2: Math.round(co2), pm25: pm25.toFixed(0) });
-      } else if (recKey === 'ventilate_now' && co2 !== null) {
-        subtitle = this._ts('subtitle', 'ventilate_now_co2', { value: Math.round(co2) });
-      } else if (recKey === 'ventilate_formaldehyde') {
-        const hcho = this._config.hcho_entity ? this._getNumericState(this._config.hcho_entity) : null;
-        subtitle = hcho !== null ? this._ts('subtitle', 'ventilate_formaldehyde', { value: hcho.toFixed(0) }) : this._t('subtitle', 'ventilate_formaldehyde_unknown');
-      } else if (recKey === 'ventilate_vocs') {
-        const tvoc = this._config.tvoc_entity ? this._getNumericState(this._config.tvoc_entity) : null;
-        subtitle = tvoc !== null ? this._ts('subtitle', 'ventilate_vocs', { value: tvoc.toFixed(0) }) : this._t('subtitle', 'ventilate_vocs_unknown');
-      } else if (recKey === 'ventilate_no2') {
-        subtitle = no2 !== null ? this._ts('subtitle', 'ventilate_no2', { value: Math.round(no2) }) : this._t('subtitle', 'ventilate_no2_unknown');
-      } else if (recKey === 'ventilate_o3') {
-        subtitle = o3 !== null ? this._ts('subtitle', 'ventilate_o3', { value: Math.round(o3) }) : this._t('subtitle', 'ventilate_o3_unknown');
-      } else if (recKey === 'too_dry' && humidity !== null) {
-        subtitle = this._ts('subtitle', 'too_dry', { value: Math.round(humidity) });
-      } else if (recKey === 'too_humid' && humidity !== null) {
-        subtitle = this._ts('subtitle', 'too_humid', { value: Math.round(humidity) });
-      } else if (recKey === 'reduce_noise') {
-        subtitle = noise !== null ? this._ts('subtitle', 'reduce_noise', { value: Math.round(noise) }) : this._t('subtitle', 'reduce_noise_unknown');
-      } else if (recKey === 'consider_ventilating') {
-        if (co2 !== null && co2 > 800) subtitle = this._ts('subtitle', 'consider_ventilating_co2', { value: Math.round(co2) });
-        else if (pm25 !== null && pm25 > 15) subtitle = this._ts('subtitle', 'consider_ventilating_pm25', { value: pm25.toFixed(0) });
-        else subtitle = this._t('subtitle', 'consider_ventilating_generic');
-      } else if (recKey === 'keep_windows_closed') {
-        const outdoorPm25 = this._config.outdoor_pm25_entity ? this._getNumericState(this._config.outdoor_pm25_entity) : null;
-        const outdoorCo2 = this._config.outdoor_co2_entity ? this._getNumericState(this._config.outdoor_co2_entity) : null;
-        // Without an indoor PM2.5 to compare against, "worse than indoor" is
-        // meaningless — phrase it in absolute terms instead (#35).
-        const noIndoorPm25 = !this._config.pm25_entity;
-        if (outdoorPm25 !== null && (outdoorPm25 > 35 || noIndoorPm25)) subtitle = this._ts('subtitle', 'keep_closed_outdoor_pm25_poor', { value: outdoorPm25.toFixed(0) });
-        else if (outdoorPm25 !== null) subtitle = this._ts('subtitle', 'keep_closed_outdoor_pm25', { value: outdoorPm25.toFixed(0) });
-        else if (outdoorCo2 !== null) subtitle = this._ts('subtitle', 'keep_closed_outdoor_co2', { value: Math.round(outdoorCo2) });
-        else subtitle = this._t('subtitle', 'keep_closed_generic');
-      }
-      recSubtitle.textContent = subtitle;
-
-      const isGood = recKey === 'all_good';
-      const isCritical = ['co_danger', 'co_warning'].includes(recKey);
-      const isPoor = ['run_air_purifier', 'open_window', 'ventilate_now', 'air_purifier_ventilate', 'keep_windows_closed', 'ventilate_formaldehyde', 'ventilate_vocs', 'co_elevated', 'consider_air_purifier'].includes(recKey);
-      recIcon.style.color = isGood ? 'var(--aq-excellent)' : (isCritical ? 'var(--aq-very-poor)' : (isPoor ? 'var(--aq-poor)' : 'var(--aq-moderate)'));
-      recContainer.style.background = isGood ?
-        'rgba(76, 175, 80, 0.1)' : (isCritical ? 'rgba(244, 67, 54, 0.15)' : (isPoor ? 'rgba(255, 152, 0, 0.15)' : 'rgba(255, 193, 7, 0.1)'));
-
-      // Action button: only meaningful when there's actually something to act on.
-      const recAction = this.shadowRoot.getElementById('rec-action');
-      if (recAction) {
-        const actionable = this._config.recommendation_action && !isGood;
-        recAction.style.display = actionable ? 'inline-flex' : 'none';
-        if (actionable) recAction.style.color = recIcon.style.color;
-      }
-    }
-
-    // Helper to render outdoor value suffix
-    const outdoorSuffix = (entityKey, value, unit) => {
-      if (!this._config[entityKey]) return '';
-      const val = this._getNumericState(this._config[entityKey]);
-      // Unitless index metrics (empty unit) match the indoor 1-decimal display.
-      // Temperature follows the temperature_decimals option so out: matches indoor.
-      const tempDecimal = (unit === '°C' || unit === '°F') && this._config.temperature_decimals;
-      const precise = unit === 'μg/m³' || unit === 'µg/m³' || unit === 'ppb' || unit === '' || tempDecimal;
-      return ` <span class="outdoor-value">(out: ${precise ? val.toFixed(1) : Math.round(val)}${unit ? ' ' + unit : ''})</span>`;
-    };
-
-    // Update CO
-    if (co !== null) {
-      const coColor = this._getCOColor(co);
-      const coValueEl = this.shadowRoot.getElementById('co-value');
-      if (coValueEl) {
-        coValueEl.innerHTML = `${co.toFixed(1)} <span class="unit">ppm</span><span class="status" id="co-status"></span>${outdoorSuffix('outdoor_co_entity', co, 'ppm')}`;
-        const statusEl = coValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('co', co);
-        statusEl.style.background = coColor + '22';
-        statusEl.style.color = coColor;
-        coValueEl.style.color = coColor;
-      }
-    }
-
-    // Update Radon
-    if (this._config.radon_entity) {
-      const radonRaw = this._getNumericState(this._config.radon_entity);
-      const radonBq = this._getRadonBqm3(radonRaw);
-      const radonColor = this._getRadonColor(radonBq);
-      const radonUnit = this._getRadonUnit();
-      const radonValueEl = this.shadowRoot.getElementById('radon-value');
-      if (radonValueEl) {
-        const displayVal = radonUnit === 'pCi/L' ? radonRaw.toFixed(1) : Math.round(radonRaw);
-        radonValueEl.innerHTML = `${displayVal} <span class="unit">${radonUnit}</span><span class="status" id="radon-status"></span>`;
-        const statusEl = radonValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('radon', radonBq);
-        statusEl.style.background = radonColor + '22';
-        statusEl.style.color = radonColor;
-        radonValueEl.style.color = radonColor;
-      }
-    }
-
-    // Update Radon Long-Term
-    if (this._config.radon_longterm_entity) {
-      const ltRaw = this._getNumericState(this._config.radon_longterm_entity);
-      const ltBq = this._getRadonBqm3(ltRaw);
-      const ltColor = this._getRadonColor(ltBq);
-      const radonUnit = this._getRadonUnit();
-      const ltValueEl = this.shadowRoot.getElementById('radon-lt-value');
-      if (ltValueEl) {
-        const displayVal = radonUnit === 'pCi/L' ? ltRaw.toFixed(1) : Math.round(ltRaw);
-        const statusText = this._getMetricStatus('radon', ltBq);
-        ltValueEl.innerHTML = `LT: ${displayVal} <span class="unit">${radonUnit}</span><span class="status">${statusText}</span>`;
-        const statusEl = ltValueEl.querySelector('.status');
-        statusEl.style.background = ltColor + '22';
-        statusEl.style.color = ltColor;
-        ltValueEl.style.color = ltColor;
-      }
-      // If no short-term radon entity, show long-term as the main value
-      if (!this._config.radon_entity) {
-        const radonValueEl = this.shadowRoot.getElementById('radon-value');
-        if (radonValueEl) {
-          const displayVal = radonUnit === 'pCi/L' ? ltRaw.toFixed(1) : Math.round(ltRaw);
-          radonValueEl.innerHTML = `${displayVal} <span class="unit">${radonUnit}</span><span class="status" id="radon-status"></span>`;
-          const statusEl = radonValueEl.querySelector('.status');
-          statusEl.textContent = this._getMetricStatus('radon', ltBq);
-          statusEl.style.background = ltColor + '22';
-          statusEl.style.color = ltColor;
-          radonValueEl.style.color = ltColor;
-        }
-      }
-    }
+    this._updateRecommendation(recKey);
+    for (const metric of GRAPH_ORDER) this._updateMetricValue(metric);
+    this._updateRadonLongTerm();
 
     // Update radon advisory banner
     const radonAdvisory = this._getRadonAdvisory();
@@ -2625,250 +2337,219 @@ class AirQualityCard extends HTMLElement {
         advisoryEl.style.display = 'none';
       }
     }
+  }
 
-    // Update CO2
-    if (co2 !== null) {
-      const co2Color = this._getCO2Color(co2);
-      const co2ValueEl = this.shadowRoot.getElementById('co2-value');
-      if (co2ValueEl) {
-        co2ValueEl.innerHTML = `${Math.round(co2)} <span class="unit">ppm</span><span class="status" id="co2-status"></span>${outdoorSuffix('outdoor_co2_entity', co2, 'ppm')}`;
-        const statusEl = co2ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('co2', co2);
-        statusEl.style.background = co2Color + '22';
-        statusEl.style.color = co2Color;
-        co2ValueEl.style.color = co2Color;
+  // Number + unit for prose (recommendation subtitles), e.g. "12 ppm", "45%".
+  _formatWithUnit(metric, value, entityKey = `${metric}_entity`) {
+    const unit = this._metricUnit(metric);
+    const number = this._formatNumber(value, this._metricDecimals(metric, this._config[entityKey]));
+    if (!unit) return number;
+    return unit === '%' ? `${number}%` : `${number} ${unit}`;
+  }
+
+  _updateRecommendation(recKey) {
+    const recIcon = this.shadowRoot.getElementById('rec-icon');
+    const recTitle = this.shadowRoot.getElementById('rec-title');
+    const recSubtitle = this.shadowRoot.getElementById('rec-subtitle');
+    const recContainer = this.shadowRoot.getElementById('recommendation');
+    if (!recIcon || !recKey) return;
+
+    const T = (m) => this._metricThresholds(m);
+    const v = (metric) => this._metricValue(metric);
+    const fmt = (metric, value) => this._formatWithUnit(metric, value);
+    // "<key>" with the reading interpolated, or "<key>_unknown" without one.
+    const withValue = (key, metric) => {
+      const value = v(metric);
+      return value !== null ? this._ts('subtitle', key, { value: fmt(metric, value) }) : this._t('subtitle', `${key}_unknown`);
+    };
+
+    recIcon.setAttribute('icon', this._getRecommendationIcon(recKey));
+    recTitle.textContent = this._t('recommendation', recKey);
+
+    const co2 = v('co2'), pm25 = v('pm25'), pm10 = v('pm10'), humidity = v('humidity');
+    let subtitle = '';
+    switch (recKey) {
+      case 'co_danger': case 'co_warning': case 'co_elevated':
+        subtitle = withValue(recKey, 'co'); break;
+      case 'propane_danger': case 'propane_warning':
+        subtitle = withValue(recKey, 'c3h8'); break;
+      case 'o2_danger': case 'o2_warning':
+        subtitle = withValue(recKey, 'o2'); break;
+      case 'ventilate_formaldehyde': subtitle = withValue(recKey, 'hcho'); break;
+      case 'ventilate_vocs': subtitle = withValue(recKey, 'tvoc'); break;
+      case 'ventilate_no2': subtitle = withValue(recKey, 'no2'); break;
+      case 'ventilate_o3': subtitle = withValue(recKey, 'o3'); break;
+      case 'reduce_noise': subtitle = withValue(recKey, 'noise'); break;
+      case 'all_good': subtitle = this._t('subtitle', 'air_quality_healthy'); break;
+      case 'run_air_purifier':
+        if (pm25 !== null && pm25 > T('pm25')[3]) subtitle = this._ts('subtitle', 'purifier_pm25', { value: fmt('pm25', pm25) });
+        else if (pm10 !== null && pm10 > T('pm10')[3]) subtitle = this._ts('subtitle', 'purifier_pm10', { value: fmt('pm10', pm10) });
+        else if (pm25 !== null) subtitle = this._ts('subtitle', 'purifier_pm25', { value: fmt('pm25', pm25) });
+        else subtitle = this._t('subtitle', 'purifier_generic');
+        break;
+      case 'consider_air_purifier':
+        if (pm10 !== null) subtitle = this._ts('subtitle', 'consider_purifier_pm10', { value: fmt('pm10', pm10) });
+        break;
+      case 'open_window':
+        if (co2 !== null) subtitle = this._ts('subtitle', 'open_window_co2', { value: fmt('co2', co2) });
+        break;
+      case 'air_purifier_ventilate':
+        if (co2 !== null && pm25 !== null) subtitle = this._ts('subtitle', 'purifier_ventilate', { co2: fmt('co2', co2), pm25: fmt('pm25', pm25) });
+        break;
+      case 'ventilate_now':
+        if (co2 !== null) subtitle = this._ts('subtitle', 'ventilate_now_co2', { value: fmt('co2', co2) });
+        break;
+      case 'too_dry': case 'too_humid':
+        if (humidity !== null) subtitle = this._ts('subtitle', recKey, { value: fmt('humidity', humidity) });
+        break;
+      case 'consider_ventilating':
+        if (co2 !== null && co2 > T('co2')[1]) subtitle = this._ts('subtitle', 'consider_ventilating_co2', { value: fmt('co2', co2) });
+        else if (pm25 !== null && pm25 > T('pm25')[1]) subtitle = this._ts('subtitle', 'consider_ventilating_pm25', { value: fmt('pm25', pm25) });
+        else subtitle = this._t('subtitle', 'consider_ventilating_generic');
+        break;
+      case 'keep_windows_closed': {
+        // Name whichever outdoor reading actually triggered the override.
+        const { outdoorPm25, outdoorCo2, pm25Worse, co2Worse } = this._outdoorComparison();
+        const outPm = (key) => this._ts('subtitle', key, { value: this._formatWithUnit('pm25', outdoorPm25, 'outdoor_pm25_entity') });
+        if (pm25Worse && (outdoorPm25 > T('pm25')[3] || pm25 === null)) subtitle = outPm('keep_closed_outdoor_pm25_poor');
+        else if (pm25Worse) subtitle = outPm('keep_closed_outdoor_pm25');
+        else if (co2Worse) subtitle = this._ts('subtitle', 'keep_closed_outdoor_co2', { value: this._formatWithUnit('co2', outdoorCo2, 'outdoor_co2_entity') });
+        else subtitle = this._t('subtitle', 'keep_closed_generic');
+        break;
       }
     }
+    recSubtitle.textContent = subtitle;
 
-    // Update PM2.5
-    if (pm25 !== null) {
-      const pm25Color = this._getPM25Color(pm25);
-      const pm25ValueEl = this.shadowRoot.getElementById('pm25-value');
-      if (pm25ValueEl) {
-        pm25ValueEl.innerHTML = `${pm25.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm25-status"></span>${outdoorSuffix('outdoor_pm25_entity', pm25, 'μg/m³')}`;
-        const statusEl = pm25ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('pm25', pm25);
-        statusEl.style.background = pm25Color + '22';
-        statusEl.style.color = pm25Color;
-        pm25ValueEl.style.color = pm25Color;
-      }
-    }
+    const severity = REC_SEVERITY[recKey] || 'moderate';
+    const accents = {
+      good: ['var(--aq-excellent)', 'rgba(76, 175, 80, 0.1)'],
+      moderate: ['var(--aq-moderate)', 'rgba(255, 193, 7, 0.1)'],
+      poor: ['var(--aq-poor)', 'rgba(255, 152, 0, 0.15)'],
+      critical: ['var(--aq-very-poor)', 'rgba(244, 67, 54, 0.15)']
+    };
+    const [accent, background] = accents[severity];
+    recIcon.style.color = accent;
+    recContainer.style.background = background;
 
-    // Update PM10
-    if (pm10 !== null) {
-      const pm10Color = this._getPM10Color(pm10);
-      const pm10ValueEl = this.shadowRoot.getElementById('pm10-value');
-      if (pm10ValueEl) {
-        pm10ValueEl.innerHTML = `${pm10.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm10-status"></span>${outdoorSuffix('outdoor_pm10_entity', pm10, 'μg/m³')}`;
-        const statusEl = pm10ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('pm10', pm10);
-        statusEl.style.background = pm10Color + '22';
-        statusEl.style.color = pm10Color;
-        pm10ValueEl.style.color = pm10Color;
-      }
+    // Action button: only meaningful when there's actually something to act on.
+    const recAction = this.shadowRoot.getElementById('rec-action');
+    if (recAction) {
+      const actionable = this._config.recommendation_action && severity !== 'good';
+      recAction.style.display = actionable ? 'inline-flex' : 'none';
+      if (actionable) recAction.style.color = accent;
     }
+  }
 
-    // Update PM1
-    if (pm1 !== null) {
-      const pm1Color = this._getPM1Color(pm1);
-      const pm1ValueEl = this.shadowRoot.getElementById('pm1-value');
-      if (pm1ValueEl) {
-        pm1ValueEl.innerHTML = `${pm1.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm1-status"></span>${outdoorSuffix('outdoor_pm1_entity', pm1, 'μg/m³')}`;
-        const statusEl = pm1ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('pm1', pm1);
-        statusEl.style.background = pm1Color + '22';
-        statusEl.style.color = pm1Color;
-        pm1ValueEl.style.color = pm1Color;
+  // Unit shown for a metric's reading.
+  _metricUnit(metric) {
+    switch (metric) {
+      case 'co': case 'hcho': case 'no2': case 'o3': return this._gasUnit(metric);
+      case 'co2': return 'ppm';
+      case 'pm25': case 'pm10': case 'pm1': case 'pm4': return 'μg/m³';
+      case 'pm03': return 'p/0.1L';
+      case 'tvoc': return this._getTVOCUnit();
+      case 'nox': return this._getNOxUnit();
+      case 'c3h8': case 'o2': case 'humidity': return '%';
+      case 'temperature': return this._getTempUnit();
+      case 'pressure': return this._getPressureUnit();
+      case 'noise': {
+        const uom = this._hass?.states[this._config.noise_entity]?.attributes?.unit_of_measurement;
+        return uom ? normalizeUnit(uom) : 'dB';
       }
+      case 'radon': return this._getRadonUnit();
     }
+    return '';
+  }
 
-    // Update PM0.3
-    if (pm03 !== null) {
-      const pm03Color = this._getPM03Color(pm03);
-      const pm03ValueEl = this.shadowRoot.getElementById('pm03-value');
-      if (pm03ValueEl) {
-        pm03ValueEl.innerHTML = `${Math.round(pm03)} <span class="unit">p/0.1L</span><span class="status" id="pm03-status"></span>${outdoorSuffix('outdoor_pm03_entity', pm03, 'p/0.1L')}`;
-        const statusEl = pm03ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('pm03', pm03);
-        statusEl.style.background = pm03Color + '22';
-        statusEl.style.color = pm03Color;
-        pm03ValueEl.style.color = pm03Color;
-      }
+  // Decimal places for a reading. The entity's own "Display precision"
+  // setting (HA entity settings) wins when the value isn't unit-converted —
+  // except temperature, where an explicit `temperature_decimals` does.
+  _metricDecimals(metric, entityId) {
+    const precision = entityId ? this._hass?.entities?.[entityId]?.display_precision : undefined;
+    const explicitTemp = metric === 'temperature' && this._rawConfig && 'temperature_decimals' in this._rawConfig;
+    if (typeof precision === 'number' && !explicitTemp && this._unitFactor(metric, entityId) === 1) return precision;
+    switch (metric) {
+      case 'co2': case 'pm03': case 'humidity': case 'noise': return 0;
+      case 'no2': case 'o3': return 0;
+      case 'c3h8': return 2;
+      case 'temperature': return this._config.temperature_decimals ? 1 : 0;
+      case 'radon': return this._isRadonPciL() ? 1 : 0;
+      case 'tvoc': return this._isVOCIndex() ? 0 : (this._getTVOCUnit() === 'mg/m³' ? 2 : 1);
+      case 'nox': return this._isNOxIndex() ? 0 : 1;
+      case 'pressure': return this._getPressureUnit().toLowerCase() === 'inhg' ? 2 : 0;
+      default: return 1;
     }
+  }
 
-    // Update HCHO
-    if (hcho !== null) {
-      const hchoColor = this._getHCHOColor(hcho);
-      const hchoValueEl = this.shadowRoot.getElementById('hcho-value');
-      if (hchoValueEl) {
-        hchoValueEl.innerHTML = `${hcho.toFixed(1)} <span class="unit">ppb</span><span class="status" id="hcho-status"></span>${outdoorSuffix('outdoor_hcho_entity', hcho, 'ppb')}`;
-        const statusEl = hchoValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('hcho', hcho);
-        statusEl.style.background = hchoColor + '22';
-        statusEl.style.color = hchoColor;
-        hchoValueEl.style.color = hchoColor;
-      }
+  // Write one metric's readout: value, unit, tier badge, outdoor suffix.
+  _updateMetricValue(metric) {
+    const el = this.shadowRoot.getElementById(`${metric}-value`);
+    if (!el) return;
+    let value, bandValue, entityId;
+    if (metric === 'radon') {
+      // Main readout is the short-term sensor (long-term when that's all
+      // there is); the color/status band is always in Bq/m³.
+      const { short, long } = this._radonReadings();
+      entityId = this._config.radon_entity ? this._config.radon_entity : this._config.radon_longterm_entity;
+      value = this._config.radon_entity ? short : long;
+      bandValue = value === null ? null : this._getRadonBqm3(value);
+    } else {
+      entityId = this._config[`${metric}_entity`];
+      value = this._metricValue(metric);
+      bandValue = value;
     }
+    if (value === null) {
+      el.innerHTML = `— <span class="status"></span>`;
+      const statusEl = el.querySelector('.status');
+      statusEl.textContent = this._t('status', 'unavailable');
+      statusEl.style.background = 'rgba(158, 158, 158, 0.15)';
+      statusEl.style.color = 'var(--secondary-text-color)';
+      el.style.color = 'var(--secondary-text-color)';
+      return;
+    }
+    const defKey = this._defKey(metric);
+    const color = this._getMetricColor(defKey, bandValue);
+    const unit = this._metricUnit(metric);
+    const number = this._formatNumber(value, this._metricDecimals(metric, entityId));
+    const unitSpan = unit ? ` <span class="unit">${escapeHtml(unit)}</span>` : '';
+    el.innerHTML = `${number}${unitSpan}<span class="status"></span>${this._outdoorSuffix(metric)}`;
+    const statusEl = el.querySelector('.status');
+    statusEl.textContent = this._getMetricStatus(defKey, bandValue);
+    statusEl.style.background = color + '22';
+    statusEl.style.color = color;
+    el.style.color = color;
+  }
 
-    // Update tVOC
-    if (tvoc !== null) {
-      const tvocColor = this._getTVOCColor(tvoc);
-      const tvocUnit = this._getTVOCUnit();
-      const tvocValueEl = this.shadowRoot.getElementById('tvoc-value');
-      if (tvocValueEl) {
-        const unitSpan = tvocUnit ? ` <span class="unit">${tvocUnit}</span>` : '';
-        tvocValueEl.innerHTML = `${tvoc.toFixed(1)}${unitSpan}<span class="status" id="tvoc-status"></span>${outdoorSuffix('outdoor_tvoc_entity', tvoc, tvocUnit)}`;
-        const statusEl = tvocValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus(this._tvocMetric(), tvoc);
-        statusEl.style.background = tvocColor + '22';
-        statusEl.style.color = tvocColor;
-        tvocValueEl.style.color = tvocColor;
-      }
-    }
+  // " (out: 12.3 μg/m³)" when the metric has an outdoor sensor configured.
+  _outdoorSuffix(metric) {
+    const entityKey = `outdoor_${metric}_entity`;
+    if (!this._config[entityKey]) return '';
+    const value = this._metricValue(metric, entityKey);
+    const unit = this._metricUnit(metric);
+    const text = value === null ? '—'
+      : `${this._formatNumber(value, this._metricDecimals(metric, this._config[entityKey]))}${unit ? ' ' + unit : ''}`;
+    return ` <span class="outdoor-value">(${escapeHtml(this._t('label', 'out'))}: ${escapeHtml(text)})</span>`;
+  }
 
-    // Update PM4
-    if (pm4 !== null) {
-      const pm4Color = this._getPM4Color(pm4);
-      const pm4ValueEl = this.shadowRoot.getElementById('pm4-value');
-      if (pm4ValueEl) {
-        pm4ValueEl.innerHTML = `${pm4.toFixed(1)} <span class="unit">μg/m³</span><span class="status" id="pm4-status"></span>`;
-        const statusEl = pm4ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('pm4', pm4);
-        statusEl.style.background = pm4Color + '22';
-        statusEl.style.color = pm4Color;
-        pm4ValueEl.style.color = pm4Color;
-      }
+  _updateRadonLongTerm() {
+    const ltValueEl = this.shadowRoot.getElementById('radon-lt-value');
+    if (!ltValueEl) return;
+    const { long } = this._radonReadings();
+    const label = escapeHtml(this._t('label', 'lt'));
+    if (long === null) {
+      ltValueEl.textContent = `${this._t('label', 'lt')}: —`;
+      ltValueEl.style.color = 'var(--secondary-text-color)';
+      return;
     }
-
-    // Update NOx
-    if (nox !== null) {
-      const noxColor = this._getNOxColor(nox);
-      const noxUnit = this._getNOxUnit();
-      const noxValueEl = this.shadowRoot.getElementById('nox-value');
-      if (noxValueEl) {
-        const unitSpan = noxUnit ? ` <span class="unit">${noxUnit}</span>` : '';
-        noxValueEl.innerHTML = `${nox.toFixed(1)}${unitSpan}<span class="status" id="nox-status"></span>${outdoorSuffix('outdoor_nox_entity', nox, noxUnit)}`;
-        const statusEl = noxValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus(this._noxMetric(), nox);
-        statusEl.style.background = noxColor + '22';
-        statusEl.style.color = noxColor;
-        noxValueEl.style.color = noxColor;
-      }
-    }
-
-    // Update Propane (C3H8)
-    if (c3h8 !== null) {
-      const c3h8Color = this._getC3H8Color(c3h8);
-      const c3h8ValueEl = this.shadowRoot.getElementById('c3h8-value');
-      if (c3h8ValueEl) {
-        c3h8ValueEl.innerHTML = `${c3h8.toFixed(2)} <span class="unit">%</span><span class="status" id="c3h8-status"></span>`;
-        const statusEl = c3h8ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('c3h8', c3h8);
-        statusEl.style.background = c3h8Color + '22';
-        statusEl.style.color = c3h8Color;
-        c3h8ValueEl.style.color = c3h8Color;
-      }
-    }
-
-    // Update O2
-    if (o2 !== null) {
-      const o2Color = this._getO2Color(o2);
-      const o2ValueEl = this.shadowRoot.getElementById('o2-value');
-      if (o2ValueEl) {
-        o2ValueEl.innerHTML = `${o2.toFixed(1)} <span class="unit">%</span><span class="status" id="o2-status"></span>`;
-        const statusEl = o2ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('o2', o2);
-        statusEl.style.background = o2Color + '22';
-        statusEl.style.color = o2Color;
-        o2ValueEl.style.color = o2Color;
-      }
-    }
-
-    // Update NO2
-    if (no2 !== null) {
-      const no2Color = this._getNO2Color(no2);
-      const no2ValueEl = this.shadowRoot.getElementById('no2-value');
-      if (no2ValueEl) {
-        no2ValueEl.innerHTML = `${Math.round(no2)} <span class="unit">µg/m³</span><span class="status" id="no2-status"></span>${outdoorSuffix('outdoor_no2_entity', no2, 'µg/m³')}`;
-        const statusEl = no2ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('no2', no2);
-        statusEl.style.background = no2Color + '22';
-        statusEl.style.color = no2Color;
-        no2ValueEl.style.color = no2Color;
-      }
-    }
-
-    // Update O3
-    if (o3 !== null) {
-      const o3Color = this._getO3Color(o3);
-      const o3ValueEl = this.shadowRoot.getElementById('o3-value');
-      if (o3ValueEl) {
-        o3ValueEl.innerHTML = `${Math.round(o3)} <span class="unit">µg/m³</span><span class="status" id="o3-status"></span>${outdoorSuffix('outdoor_o3_entity', o3, 'µg/m³')}`;
-        const statusEl = o3ValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('o3', o3);
-        statusEl.style.background = o3Color + '22';
-        statusEl.style.color = o3Color;
-        o3ValueEl.style.color = o3Color;
-      }
-    }
-
-    // Update Humidity
-    if (humidity !== null) {
-      const humidityColor = this._getHumidityColor(humidity);
-      const humidityValueEl = this.shadowRoot.getElementById('humidity-value');
-      if (humidityValueEl) {
-        humidityValueEl.innerHTML = `${Math.round(humidity)} <span class="unit">%</span><span class="status" id="humidity-status"></span>${outdoorSuffix('outdoor_humidity_entity', humidity, '%')}`;
-        const statusEl = humidityValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('humidity', humidity);
-        statusEl.style.background = humidityColor + '22';
-        statusEl.style.color = humidityColor;
-        humidityValueEl.style.color = humidityColor;
-      }
-    }
-
-    // Update Temperature
-    if (temp !== null) {
-      const tempColor = this._getTempColor(temp);
-      const tempUnit = this._getTempUnit();
-      const tempValueEl = this.shadowRoot.getElementById('temperature-value');
-      if (tempValueEl) {
-        tempValueEl.innerHTML = `${this._formatTemp(temp)} <span class="unit">${tempUnit}</span><span class="status" id="temperature-status"></span>${outdoorSuffix('outdoor_temperature_entity', temp, tempUnit)}`;
-        const statusEl = tempValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus(this._tempMetric(), temp);
-        statusEl.style.background = tempColor + '22';
-        statusEl.style.color = tempColor;
-        tempValueEl.style.color = tempColor;
-      }
-    }
-
-    // Update Pressure
-    if (pressure !== null) {
-      const pressureColor = this._getPressureColor(pressure);
-      const pressureUnit = this._getPressureUnit();
-      const pressureValueEl = this.shadowRoot.getElementById('pressure-value');
-      if (pressureValueEl) {
-        pressureValueEl.innerHTML = `${Math.round(pressure)} <span class="unit">${pressureUnit}</span><span class="status" id="pressure-status"></span>${outdoorSuffix('outdoor_pressure_entity', pressure, pressureUnit)}`;
-        const statusEl = pressureValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('pressure', pressure);
-        statusEl.style.background = pressureColor + '22';
-        statusEl.style.color = pressureColor;
-        pressureValueEl.style.color = pressureColor;
-      }
-    }
-
-    // Update Noise
-    if (noise !== null) {
-      const noiseColor = this._getNoiseColor(noise);
-      const noiseValueEl = this.shadowRoot.getElementById('noise-value');
-      if (noiseValueEl) {
-        noiseValueEl.innerHTML = `${Math.round(noise)} <span class="unit">dB</span><span class="status" id="noise-status"></span>`;
-        const statusEl = noiseValueEl.querySelector('.status');
-        statusEl.textContent = this._getMetricStatus('noise', noise);
-        statusEl.style.background = noiseColor + '22';
-        statusEl.style.color = noiseColor;
-        noiseValueEl.style.color = noiseColor;
-      }
-    }
+    const ltBq = this._getRadonBqm3(long);
+    const ltColor = this._getRadonColor(ltBq);
+    const unit = escapeHtml(this._getRadonUnit());
+    ltValueEl.innerHTML = `${label}: ${this._formatNumber(long, this._isRadonPciL() ? 1 : 0)} <span class="unit">${unit}</span><span class="status"></span>`;
+    const statusEl = ltValueEl.querySelector('.status');
+    statusEl.textContent = this._getMetricStatus('radon', ltBq);
+    statusEl.style.background = ltColor + '22';
+    statusEl.style.color = ltColor;
+    ltValueEl.style.color = ltColor;
   }
 
   // Pressure unit: use the sensor's own unit_of_measurement when present,
@@ -2878,80 +2559,48 @@ class AirQualityCard extends HTMLElement {
     return uom || 'hPa';
   }
 
+  // Fixed y-axis range for a metric's graph: the metric's meaningful span by
+  // default, or — when the user overrode its thresholds (other units, e.g.
+  // inHg pressure or µg/m³ CO) — the override's span plus one tier of margin.
+  _graphRange(metric) {
+    const defKey = this._defKey(metric);
+    const defaults = {
+      co: [0, 100], co2: [400, 2000], pm25: [0, 60], pm10: [0, 200], pm1: [0, 60], pm03: [0, 5000],
+      pm4: [0, 75], hcho: [0, 300], tvoc_index: [0, 500], tvoc_ppb: [0, 1500], nox_index: [0, 500],
+      nox_ppb: [0, 300], c3h8: [0, 2.5], o2: [15, 25], no2: [0, 300], o3: [0, 300], humidity: [0, 100],
+      temp_c: [10, 32], temp_f: [50, 90], noise: [20, 90], pressure: [980, 1045], radon: [0, 370]
+    };
+    const toDisplay = (v) => metric === 'radon' && this._isRadonPciL() ? v / 37 : v;
+    const override = this._thresholdOverride(defKey);
+    if (!override) return defaults[defKey].map(toDisplay);
+    const [t0, t1, t2, t3] = override;
+    let lo = t0 - (t1 - t0);
+    if (defaults[defKey][0] >= 0) lo = Math.max(0, lo);
+    return [toDisplay(lo), toDisplay(t3 + (t3 - t2))];
+  }
+
   _renderGraphs() {
+    this._buildHistory();
     this._graphData = {};
-
-    if (this._config.co_entity && this._history.co.length) {
-      this._renderGraph('co', this._history.co, this._getCOColor.bind(this), 0, 100, 'ppm', this._history.outdoor_co);
+    for (const metric of GRAPH_ORDER) {
+      if (!this._graphEntity(metric)) continue;
+      let data, overlay, overlayLabel, colorFn;
+      if (metric === 'radon') {
+        data = this._history.radon.length ? this._history.radon : this._history.radon_longterm;
+        overlay = this._config.radon_entity && this._config.radon_longterm_entity ? this._history.radon_longterm : [];
+        overlayLabel = this._t('radon', 'long_term');
+        colorFn = (v) => this._getRadonColor(this._getRadonBqm3(v));
+      } else {
+        data = this._history[metric];
+        overlay = this._history[`outdoor_${metric}`];
+        overlayLabel = this._t('label', 'outdoor');
+        const defKey = this._defKey(metric);
+        colorFn = (v) => this._getMetricColor(defKey, v);
+      }
+      if (!data || !data.length) continue;
+      const [min, max] = this._graphRange(metric);
+      this._renderGraph(metric, data, colorFn, min, max, this._metricUnit(metric), overlay, overlayLabel);
     }
-    if ((this._config.radon_entity || this._config.radon_longterm_entity) && (this._history.radon.length || this._history.radon_longterm.length)) {
-      const radonUnit = this._getRadonUnit();
-      const radonMax = this._isRadonPciL() ? 10 : 370;
-      const primaryData = this._history.radon.length ? this._history.radon : this._history.radon_longterm;
-      const overlayData = this._config.radon_entity && this._config.radon_longterm_entity ? this._history.radon_longterm : [];
-      this._renderGraph('radon', primaryData, (v) => this._getRadonColor(this._getRadonBqm3(v)), 0, radonMax, radonUnit, overlayData, 'Long-term');
-    }
-    if (this._config.co2_entity && this._history.co2.length) {
-      this._renderGraph('co2', this._history.co2, this._getCO2Color.bind(this), 400, 2000, 'ppm', this._history.outdoor_co2);
-    }
-    if (this._config.pm25_entity && this._history.pm25.length) {
-      this._renderGraph('pm25', this._history.pm25, this._getPM25Color.bind(this), 0, 60, 'μg/m³', this._history.outdoor_pm25);
-    }
-    if (this._config.pm10_entity && this._history.pm10.length) {
-      this._renderGraph('pm10', this._history.pm10, this._getPM10Color.bind(this), 0, 200, 'μg/m³', this._history.outdoor_pm10);
-    }
-    if (this._config.pm1_entity && this._history.pm1.length) {
-      this._renderGraph('pm1', this._history.pm1, this._getPM1Color.bind(this), 0, 60, 'μg/m³', this._history.outdoor_pm1);
-    }
-    if (this._config.pm03_entity && this._history.pm03.length) {
-      this._renderGraph('pm03', this._history.pm03, this._getPM03Color.bind(this), 0, 5000, 'p/0.1L', this._history.outdoor_pm03);
-    }
-    if (this._config.hcho_entity && this._history.hcho.length) {
-      this._renderGraph('hcho', this._history.hcho, this._getHCHOColor.bind(this), 0, 300, 'ppb', this._history.outdoor_hcho);
-    }
-    if (this._config.tvoc_entity && this._history.tvoc.length) {
-      const tvocUnit = this._getTVOCUnit();
-      const tvocMax = this._isVOCIndex() ? 500 : 1500;
-      this._renderGraph('tvoc', this._history.tvoc, this._getTVOCColor.bind(this), 0, tvocMax, tvocUnit, this._history.outdoor_tvoc);
-    }
-    if (this._config.pm4_entity && this._history.pm4.length) {
-      this._renderGraph('pm4', this._history.pm4, this._getPM4Color.bind(this), 0, 75, 'μg/m³');
-    }
-    if (this._config.nox_entity && this._history.nox.length) {
-      const noxMax = this._isNOxIndex() ? 500 : 300;
-      this._renderGraph('nox', this._history.nox, this._getNOxColor.bind(this), 0, noxMax, this._getNOxUnit(), this._history.outdoor_nox);
-    }
-    if (this._config.c3h8_entity && this._history.c3h8.length) {
-      // '%vol' (not '%') so _formatGraphValue's optional min/max marker
-      // doesn't round propane's sub-1% readings down to 0 (#see METRIC_DEFS).
-      this._renderGraph('c3h8', this._history.c3h8, this._getC3H8Color.bind(this), 0, 2.5, '%vol');
-    }
-    if (this._config.o2_entity && this._history.o2.length) {
-      this._renderGraph('o2', this._history.o2, this._getO2Color.bind(this), 15, 25, '%');
-    }
-    if (this._config.no2_entity && this._history.no2.length) {
-      this._renderGraph('no2', this._history.no2, this._getNO2Color.bind(this), 0, 300, 'µg/m³', this._history.outdoor_no2);
-    }
-    if (this._config.o3_entity && this._history.o3.length) {
-      this._renderGraph('o3', this._history.o3, this._getO3Color.bind(this), 0, 300, 'µg/m³', this._history.outdoor_o3);
-    }
-    if (this._config.humidity_entity && this._history.humidity.length) {
-      this._renderGraph('humidity', this._history.humidity, this._getHumidityColor.bind(this), 0, 100, '%', this._history.outdoor_humidity);
-    }
-    if (this._config.temperature_entity && this._history.temperature.length) {
-      const tempUnit = this._getTempUnit();
-      const tempMin = this._isCelsius() ? 10 : 50;
-      const tempMax = this._isCelsius() ? 32 : 90;
-      this._renderGraph('temperature', this._history.temperature, this._getTempColor.bind(this), tempMin, tempMax, tempUnit, this._history.outdoor_temperature);
-    }
-    if (this._config.noise_entity && this._history.noise.length) {
-      this._renderGraph('noise', this._history.noise, this._getNoiseColor.bind(this), 20, 90, 'dB');
-    }
-    if (this._config.pressure_entity && this._history.pressure.length) {
-      this._renderGraph('pressure', this._history.pressure, this._getPressureColor.bind(this), 980, 1045, this._getPressureUnit(), this._history.outdoor_pressure);
-    }
-
-    this._setupGraphInteractions();
   }
 
   _renderGraph(graphId, data, colorFn, minVal, maxVal, unit, outdoorData, outdoorLabel) {
@@ -3004,7 +2653,7 @@ class AirQualityCard extends HTMLElement {
       });
     }
 
-    this._graphData[graphId] = { points, outdoorPoints, unit, colorFn, outdoorLabel: outdoorLabel || 'Outdoor' };
+    this._graphData[graphId] = { points, outdoorPoints, unit, colorFn, outdoorLabel: outdoorLabel || this._t('label', 'outdoor') };
 
     if (this._config.show_min_max) {
       this._updateMinMaxDisplay(graphId, data, colorFn);
@@ -3016,67 +2665,29 @@ class AirQualityCard extends HTMLElement {
 
     const ts = Date.now();
     const gradientId = `gradient-${graphId}-${ts}`;
-    // Gradient stops follow each point's actual X position so colors line up
-    // with the (now time-based) line geometry instead of being evenly spaced.
-    const stopPct = (px) => (((px - padding) / (width - 2 * padding)) * 100);
-    let gradientStops = '';
-    for (let i = 0; i < points.length; i++) {
-      gradientStops += `<stop offset="${stopPct(points[i].x).toFixed(2)}%" style="stop-color:${points[i].color}" />`;
-    }
-
-    let linePath = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 1; i < points.length; i++) {
-      linePath += ` L ${points[i].x} ${points[i].y}`;
-    }
-
-    const areaPath = linePath + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
     const fillGradientId = `fill-${graphId}-${ts}`;
+    // Horizontal color gradients in user space: stops follow each point's X
+    // position, and (unlike the default bounding-box units) a perfectly flat
+    // line — a steady PM 0 or NOx Index 1 — still gets painted; a zero-height
+    // bounding box makes the browser drop the stroke entirely.
+    const stopPct = (px) => (((px - padding) / (width - 2 * padding)) * 100);
+    const colorGradient = (id, pts) => `
+          <linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${padding}" y1="0" x2="${width - padding}" y2="0">
+            ${pts.map(p => `<stop offset="${stopPct(p.x).toFixed(2)}%" style="stop-color:${p.color}" />`).join('')}
+          </linearGradient>`;
+    const pathOf = (pts) => pts.map((p, i) => `${i ? 'L' : 'M'} ${p.x} ${p.y}`).join(' ');
 
-    // Build outdoor dashed line SVG if data exists
-    let outdoorSvg = '';
-    if (outdoorPoints.length >= 2) {
-      const outdoorGradientId = `outdoor-gradient-${graphId}-${ts}`;
-      let outdoorGradientStops = '';
-      for (let i = 0; i < outdoorPoints.length; i++) {
-        outdoorGradientStops += `<stop offset="${stopPct(outdoorPoints[i].x).toFixed(2)}%" style="stop-color:${outdoorPoints[i].color}" />`;
-      }
-      let outdoorLinePath = `M ${outdoorPoints[0].x} ${outdoorPoints[0].y}`;
-      for (let i = 1; i < outdoorPoints.length; i++) {
-        outdoorLinePath += ` L ${outdoorPoints[i].x} ${outdoorPoints[i].y}`;
-      }
-      outdoorSvg = `
-        <linearGradient id="${outdoorGradientId}" x1="0%" y1="0%" x2="100%" y2="0%">
-          ${outdoorGradientStops}
-        </linearGradient>
-      `;
-      // The outdoor path is appended after the main line
-      outdoorSvg += `</defs>
-      <rect x="0" y="0" width="${width}" height="${height}" fill="url(#${fillGradientId})" mask="url(#mask-${graphId})" style="color: url(#${gradientId})" />
-      <path d="${linePath}" stroke="url(#${gradientId})" class="graph-line" fill="none" />
-      <path d="${outdoorLinePath}" stroke="url(#${outdoorGradientId})" class="graph-line" fill="none" stroke-dasharray="4 3" opacity="0.5" />`;
-    }
+    const linePath = pathOf(points);
+    const areaPath = linePath + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
+    const hasOverlay = outdoorPoints.length >= 2;
+    const overlayGradientId = `outdoor-gradient-${graphId}-${ts}`;
 
-    if (outdoorPoints.length >= 2) {
-      svg.innerHTML = `
+    // The area under the line is a faint neutral fade (currentColor), masked
+    // to the line's shape; the overlay (outdoor / long-term) is dashed.
+    svg.innerHTML = `
         <defs>
-          <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="0%">
-            ${gradientStops}
-          </linearGradient>
-          <linearGradient id="${fillGradientId}" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" style="stop-color:currentColor;stop-opacity:0.2" />
-            <stop offset="100%" style="stop-color:currentColor;stop-opacity:0.02" />
-          </linearGradient>
-          <mask id="mask-${graphId}">
-            <path d="${areaPath}" fill="white" />
-          </mask>
-          ${outdoorSvg}
-      `;
-    } else {
-      svg.innerHTML = `
-        <defs>
-          <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="0%">
-            ${gradientStops}
-          </linearGradient>
+          ${colorGradient(gradientId, points)}
+          ${hasOverlay ? colorGradient(overlayGradientId, outdoorPoints) : ''}
           <linearGradient id="${fillGradientId}" x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" style="stop-color:currentColor;stop-opacity:0.2" />
             <stop offset="100%" style="stop-color:currentColor;stop-opacity:0.02" />
@@ -3085,10 +2696,10 @@ class AirQualityCard extends HTMLElement {
             <path d="${areaPath}" fill="white" />
           </mask>
         </defs>
-        <rect x="0" y="0" width="${width}" height="${height}" fill="url(#${fillGradientId})" mask="url(#mask-${graphId})" style="color: url(#${gradientId})" />
+        <rect x="0" y="0" width="${width}" height="${height}" fill="url(#${fillGradientId})" mask="url(#mask-${graphId})" />
         <path d="${linePath}" stroke="url(#${gradientId})" class="graph-line" fill="none" />
+        ${hasOverlay ? `<path d="${pathOf(outdoorPoints)}" stroke="url(#${overlayGradientId})" class="graph-line" fill="none" stroke-dasharray="4 3" opacity="0.5" />` : ''}
       `;
-    }
 
     if (timeAxis && points.length > 0) {
       // Use the configured time window so labels match the X scale even when
@@ -3107,62 +2718,123 @@ class AirQualityCard extends HTMLElement {
     }
   }
 
+  // Wired once per render (not per graph redraw, which happens every minute
+  // and on every streamed state). Tap/Enter opens HA's more-info dialog;
+  // mouse hover or a touch press-and-hold scrubs the graph.
   _setupGraphInteractions() {
-    const graphIds = ['co', 'radon', 'co2', 'pm25', 'pm10', 'pm1', 'pm03', 'pm4', 'hcho', 'tvoc', 'nox', 'c3h8', 'o2', 'no2', 'o3', 'noise', 'humidity', 'temperature', 'pressure'].filter(id => {
-      if (id === 'radon') return this._config.radon_entity || this._config.radon_longterm_entity;
-      return this._config[`${id}_entity`];
-    });
-
-    graphIds.forEach(graphId => {
+    for (const graphId of GRAPH_ORDER) {
       const container = this.shadowRoot.getElementById(`${graphId}-graph-container`);
       const graphEl = this.shadowRoot.getElementById(`${graphId}-graph`);
-      const cursor = this.shadowRoot.getElementById(`${graphId}-cursor`);
-      const tooltip = this.shadowRoot.getElementById(`${graphId}-tooltip`);
-
-      if (!container || !graphEl || !cursor || !tooltip) return;
-
-      const entityId = container.dataset.entity;
-
-      container.addEventListener('click', (e) => {
-        if (this._isDragging) {
-          this._isDragging = false;
-          return;
+      if (!container || !graphEl) continue;
+      const entityId = this._graphEntity(graphId);
+      let suppressClickUntil = 0;
+      const openMoreInfo = () => this.dispatchEvent(new CustomEvent('hass-more-info', {
+        bubbles: true,
+        composed: true,
+        detail: { entityId }
+      }));
+      container.addEventListener('click', () => {
+        if (Date.now() < suppressClickUntil) return; // the tap ended a scrub
+        openMoreInfo();
+      });
+      container.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openMoreInfo();
         }
-        const event = new CustomEvent('hass-more-info', {
-          bubbles: true,
-          composed: true,
-          detail: { entityId }
-        });
-        this.dispatchEvent(event);
       });
 
       graphEl.addEventListener('mouseenter', () => this._showCursor(graphId));
       graphEl.addEventListener('mouseleave', () => this._hideCursor(graphId));
       graphEl.addEventListener('mousemove', (e) => this._updateCursor(graphId, e));
 
-      let touchTimeout;
+      // Touch: holding still for 200 ms starts a scrub; moving first is a
+      // page scroll and must stay one (state is per graph and always reset,
+      // so a scroll can never leave the graph swallowing later gestures).
+      let touchTimer = null;
+      let scrubbing = false;
+      let origin = null;
       graphEl.addEventListener('touchstart', (e) => {
-        touchTimeout = setTimeout(() => {
-          this._isDragging = true;
+        const touch = e.touches[0];
+        origin = { x: touch.clientX, y: touch.clientY };
+        touchTimer = setTimeout(() => {
+          touchTimer = null;
+          scrubbing = true;
           this._showCursor(graphId);
-          this._updateCursor(graphId, e.touches[0]);
+          this._updateCursor(graphId, touch);
         }, 200);
       }, { passive: true });
-
       graphEl.addEventListener('touchmove', (e) => {
-        if (this._isDragging) {
+        const touch = e.touches[0];
+        if (scrubbing) {
           e.preventDefault();
-          this._updateCursor(graphId, e.touches[0]);
+          this._updateCursor(graphId, touch);
+        } else if (touchTimer && Math.hypot(touch.clientX - origin.x, touch.clientY - origin.y) > 8) {
+          clearTimeout(touchTimer);
+          touchTimer = null;
         }
       }, { passive: false });
-
-      graphEl.addEventListener('touchend', () => {
-        clearTimeout(touchTimeout);
-        if (this._isDragging) {
+      const endTouch = () => {
+        clearTimeout(touchTimer);
+        touchTimer = null;
+        if (scrubbing) {
+          scrubbing = false;
+          suppressClickUntil = Date.now() + 500;
           setTimeout(() => this._hideCursor(graphId), 1000);
         }
-      });
+      };
+      graphEl.addEventListener('touchend', endTouch);
+      graphEl.addEventListener('touchcancel', endTouch);
+    }
+  }
+
+  // HA-style tap / hold / double-tap for a plain element (HA's action-handler
+  // directive is internal to its Lit components): 500 ms hold, 250 ms
+  // double-tap window, movement or a scroll cancels a hold, and Enter/Space
+  // count as a tap for keyboard users.
+  _bindActions(el, { tap, hold, doubleTap }) {
+    let holdTimer = null;
+    let held = false;
+    let tapTimer = null;
+    let origin = null;
+    const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      held = false;
+      origin = { x: e.clientX, y: e.clientY };
+      if (hold) holdTimer = setTimeout(() => { holdTimer = null; held = true; hold(); }, 500);
     });
+    el.addEventListener('pointermove', (e) => {
+      if (holdTimer && Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > 10) cancelHold();
+    });
+    el.addEventListener('pointerup', cancelHold);
+    el.addEventListener('pointerleave', cancelHold);
+    el.addEventListener('pointercancel', cancelHold);
+    if (hold) el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('click', () => {
+      if (held) { held = false; return; }
+      if (doubleTap) {
+        if (tapTimer) {
+          clearTimeout(tapTimer);
+          tapTimer = null;
+          doubleTap();
+          return;
+        }
+        tapTimer = setTimeout(() => { tapTimer = null; if (tap) tap(); }, 250);
+        return;
+      }
+      if (tap) tap();
+    });
+    el.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && tap) {
+        e.preventDefault();
+        tap();
+      }
+    });
+  }
+
+  _bindActivation(el, activate) {
+    this._bindActions(el, { tap: activate });
   }
 
   _showCursor(graphId) {
@@ -3212,15 +2884,13 @@ class AirQualityCard extends HTMLElement {
     const timeEl = tooltip.querySelector('.graph-tooltip-time');
 
     const formatVal = (val) => {
-      if (data.unit === '°F' || data.unit === '°C') return this._config.temperature_decimals ? val.toFixed(1) : Math.round(val);
-      if (data.unit === 'ppm' || data.unit === 'ppb' || data.unit === 'p/0.1L' || data.unit === 'Bq/m³') return Math.round(val);
-      if (data.unit === '%') return Math.round(val);
-      if (data.unit === 'pCi/L') return val.toFixed(1);
-      return val.toFixed(1);
+      const number = this._formatGraphValue(val, graphId);
+      if (!data.unit) return number;
+      return data.unit === '%' ? `${number}%` : `${number} ${data.unit}`;
     };
 
     if (valueEl) {
-      valueEl.textContent = `${formatVal(closest.value)} ${data.unit}`;
+      valueEl.textContent = formatVal(closest.value);
       valueEl.style.color = closest.color;
     }
 
@@ -3236,7 +2906,7 @@ class AirQualityCard extends HTMLElement {
             closestOutdoor = point;
           }
         }
-        outdoorEl.textContent = `${data.outdoorLabel}: ${formatVal(closestOutdoor.value)} ${data.unit}`;
+        outdoorEl.textContent = `${data.outdoorLabel}: ${formatVal(closestOutdoor.value)}`;
         outdoorEl.style.color = closestOutdoor.color;
         outdoorEl.style.display = 'block';
       } else {
@@ -3265,7 +2935,14 @@ window.customCards.push({
   name: 'Air Quality Card',
   description: 'A custom card for air quality monitoring with WHO-based thresholds and gradient graphs',
   preview: true,
-  documentationURL: 'https://github.com/KadenThomp36/air-quality-card'
+  documentationURL: 'https://github.com/KadenThomp36/air-quality-card',
+  // Card picker suggestions (HA 2026.6+): offered for air-quality sensors,
+  // pre-filled with the rest of that device's sensors.
+  getEntitySuggestion(hass, entityId) {
+    const metric = DEVICE_CLASS_METRIC[hass?.states?.[entityId]?.attributes?.device_class];
+    if (!SUGGEST_FOR.includes(metric)) return null;
+    return { config: configForDevice(hass, entityId) };
+  }
 });
 
 console.info(
@@ -3276,298 +2953,103 @@ console.info(
 
 // ============================================
 // VISUAL CONFIGURATION EDITOR
-// Uses ha-form with expandable sections via getConfigElement
+// HA's built-in form editor via the card's static getConfigForm(): HA renders
+// the ha-form itself, so the card needs no editor element and no Lit.
 // ============================================
 
-const LitElement = Object.getPrototypeOf(
-  customElements.get("hui-masonry-view") || customElements.get("hui-view")
-);
-const html = LitElement?.prototype?.html;
-const css = LitElement?.prototype?.css;
+// Fields whose labels HA already translates (ui.panel.lovelace.editor.card.
+// generic.*): returning nothing from computeLabel lets HA use its own.
+const NATIVE_EDITOR_LABELS = ['name', 'hours_to_show', 'tap_action', 'hold_action', 'double_tap_action', 'interactions'];
 
-if (LitElement && !customElements.get('air-quality-card-editor')) {
-  class AirQualityCardEditor extends LitElement {
-    static get properties() {
-      return {
-        hass: { type: Object },
-        _config: { type: Object }
-      };
-    }
-
-    setConfig(config) {
-      this._config = {
-        name: 'Air Quality',
-        hours_to_show: 24,
-        temperature_unit: 'auto',
-        radon_unit: 'auto',
-        language: 'auto',
-        ...config
-      };
-    }
-
-    _resolveLanguage() {
-      const explicit = this._config && this._config.language;
-      let lang;
-      if (explicit && explicit !== 'auto') {
-        lang = explicit;
-      } else {
-        lang = (this.hass && this.hass.locale && this.hass.locale.language) || (this.hass && this.hass.language) || 'en';
+function configForm() {
+  const sensor = (name) => ({ name, selector: { entity: { domain: 'sensor' } } });
+  const pair = (a, b) => ({ type: 'grid', name: '', schema: [sensor(a), sensor(b)] });
+  return {
+    schema: [
+      { name: 'name', selector: { text: {} } },
+      pair('co2_entity', 'pm25_entity'),
+      pair('humidity_entity', 'temperature_entity'),
+      {
+        type: 'expandable', name: 'section_additional', flatten: true,
+        schema: [
+          pair('radon_entity', 'radon_longterm_entity'),
+          pair('co_entity', 'hcho_entity'),
+          pair('tvoc_entity', 'pm4_entity'),
+          pair('nox_entity', 'pm1_entity'),
+          pair('pm10_entity', 'pm03_entity'),
+          pair('c3h8_entity', 'o2_entity'),
+          pair('no2_entity', 'o3_entity'),
+          pair('pressure_entity', 'noise_entity')
+        ]
+      },
+      {
+        type: 'expandable', name: 'section_outdoor', flatten: true,
+        schema: [
+          pair('outdoor_co2_entity', 'outdoor_pm25_entity'),
+          pair('outdoor_humidity_entity', 'outdoor_temperature_entity'),
+          pair('outdoor_co_entity', 'outdoor_hcho_entity'),
+          pair('outdoor_tvoc_entity', 'outdoor_pm1_entity'),
+          pair('outdoor_pm10_entity', 'outdoor_pm03_entity'),
+          pair('outdoor_nox_entity', 'outdoor_no2_entity'),
+          pair('outdoor_o3_entity', 'outdoor_pressure_entity')
+        ]
+      },
+      {
+        type: 'expandable', name: 'interactions', flatten: true,
+        schema: [
+          { name: 'tap_action', selector: { ui_action: { default_action: 'none' } } },
+          { name: 'hold_action', selector: { ui_action: { default_action: 'none' } } },
+          { name: 'double_tap_action', selector: { ui_action: { default_action: 'none' } } },
+          { name: 'recommendation_action', selector: { ui_action: { default_action: 'none' } } }
+        ]
+      },
+      {
+        type: 'expandable', name: 'section_advanced', flatten: true,
+        schema: [
+          sensor('air_quality_entity'),
+          { name: 'hours_to_show', default: 24, selector: { number: { min: 1, max: 168, mode: 'box', unit_of_measurement: 'h' } } },
+          { name: 'show_min_max', selector: { boolean: {} } },
+          { name: 'y_scale', selector: { select: { options: [{ value: 'fixed', label: 'Fixed (full metric range)' }, { value: 'auto', label: 'Auto (zoom to data)' }], mode: 'dropdown' } } },
+          { name: 'show_status_banner', default: true, selector: { boolean: {} } },
+          { name: 'order', selector: { select: { multiple: true, mode: 'list', options: [
+            { value: 'co', label: 'CO' },
+            { value: 'radon', label: 'Radon' },
+            { value: 'co2', label: 'CO₂' },
+            { value: 'pm25', label: 'PM2.5' },
+            { value: 'pm10', label: 'PM10' },
+            { value: 'pm1', label: 'PM1' },
+            { value: 'pm03', label: 'PM0.3' },
+            { value: 'pm4', label: 'PM4' },
+            { value: 'hcho', label: 'HCHO' },
+            { value: 'tvoc', label: 'tVOC' },
+            { value: 'nox', label: 'NOx' },
+            { value: 'no2', label: 'NO₂' },
+            { value: 'o3', label: 'O₃' },
+            { value: 'o2', label: 'O₂' },
+            { value: 'c3h8', label: 'Propane' },
+            { value: 'humidity', label: 'Humidity' },
+            { value: 'temperature', label: 'Temperature' },
+            { value: 'noise', label: 'Noise' },
+            { value: 'pressure', label: 'Pressure' }
+          ] } } },
+          { name: 'display', selector: { select: { options: [{ value: 'full', label: 'Full (graphs and details)' }, { value: 'compact', label: 'Compact (status badge only)' }, { value: 'expandable', label: 'Expandable (compact, tap to expand)' }], mode: 'dropdown' } } },
+          { name: 'compact_alerts', default: true, selector: { boolean: {} } },
+          { name: 'auto_expand', selector: { boolean: {} } },
+          { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }, { value: 'hu', label: 'Magyar' }, { value: 'pl', label: 'Polski' }], mode: 'dropdown' } } },
+          { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor/HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
+          { name: 'temperature_decimals', selector: { boolean: {} } },
+          { name: 'radon_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor)' }, { value: 'pCi/L', label: 'pCi/L (US)' }, { value: 'Bq/m³', label: 'Bq/m³ (International)' }], mode: 'dropdown' } } },
+          { name: 'tvoc_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto-detect' }, { value: 'ppb', label: 'Absolute (ppb)' }, { value: 'index', label: 'VOC Index (Sensirion)' }], mode: 'dropdown' } } },
+          { name: 'nox_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto-detect' }, { value: 'ppb', label: 'Absolute (ppb)' }, { value: 'index', label: 'NOx Index (Sensirion)' }], mode: 'dropdown' } } }
+        ]
       }
-      const code = String(lang).split('-')[0].toLowerCase();
-      return TRANSLATIONS[code] ? code : 'en';
+    ],
+    // Labels come from the card's own translations in the language the card
+    // instances resolved (HA's callback only hands us `localize`).
+    computeLabel(schema) {
+      if (!schema?.name || NATIVE_EDITOR_LABELS.includes(schema.name)) return undefined;
+      const pack = TRANSLATIONS[editorLanguage]?.editor;
+      return pack?.[schema.name] ?? TRANSLATIONS.en.editor[schema.name];
     }
-
-    _t(group, key) {
-      const lang = this._resolveLanguage();
-      const pack = TRANSLATIONS[lang] && TRANSLATIONS[lang][group];
-      if (pack && pack[key] !== undefined) return pack[key];
-      const enPack = TRANSLATIONS.en[group];
-      if (enPack && enPack[key] !== undefined) return enPack[key];
-      return key;
-    }
-
-    _computeLabel = (schema) => {
-      // Arrow form preserves `this` since ha-form invokes computeLabel detached from the editor.
-      if (!schema || !schema.name) return '';
-      // English fallback for fields added after the translation pack was written.
-      const localFallbacks = {
-        show_min_max: 'Show min/max for each metric',
-        y_scale: 'Graph Y-axis scale',
-        show_status_banner: 'Show status banner',
-        order: 'Sensor Order (list of metric names)',
-        display: 'Display Mode',
-        tap_action: 'Tap Action',
-        hold_action: 'Hold Action',
-        double_tap_action: 'Double-Tap Action'
-      };
-      const translated = this._t('editor', schema.name);
-      if (translated !== schema.name) return translated;
-      return localFallbacks[schema.name] || schema.name;
-    }
-
-    _schema() {
-      return [
-        { name: 'name', selector: { text: {} } },
-        {
-          type: 'grid',
-          schema: [
-            { name: 'co2_entity', selector: { entity: { domain: 'sensor' } } },
-            { name: 'pm25_entity', selector: { entity: { domain: 'sensor' } } },
-          ]
-        },
-        {
-          type: 'grid',
-          schema: [
-            { name: 'humidity_entity', selector: { entity: { domain: 'sensor' } } },
-            { name: 'temperature_entity', selector: { entity: { domain: 'sensor' } } },
-          ]
-        },
-        {
-          type: 'expandable',
-          title: this._t('editor', 'section_additional'),
-          flatten: true,
-          schema: [
-            {
-              type: 'grid',
-              schema: [
-                { name: 'radon_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'radon_longterm_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'co_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'hcho_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'tvoc_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'pm4_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'nox_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'pm1_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'pm10_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'pm03_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'c3h8_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'o2_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'no2_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'o3_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'pressure_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'noise_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-          ]
-        },
-        {
-          type: 'expandable',
-          title: this._t('editor', 'section_outdoor'),
-          flatten: true,
-          schema: [
-            {
-              type: 'grid',
-              schema: [
-                { name: 'outdoor_co2_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_pm25_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'outdoor_humidity_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_temperature_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'outdoor_co_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_hcho_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'outdoor_tvoc_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_pm1_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'outdoor_pm10_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_pm03_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'outdoor_nox_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_no2_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-            {
-              type: 'grid',
-              schema: [
-                { name: 'outdoor_o3_entity', selector: { entity: { domain: 'sensor' } } },
-                { name: 'outdoor_pressure_entity', selector: { entity: { domain: 'sensor' } } },
-              ]
-            },
-          ]
-        },
-        {
-          type: 'expandable',
-          title: this._t('editor', 'section_advanced'),
-          flatten: true,
-          schema: [
-            { name: 'air_quality_entity', selector: { entity: { domain: 'sensor' } } },
-            { name: 'hours_to_show', selector: { number: { min: 1, max: 168, mode: 'box', unit_of_measurement: 'hours' } } },
-            { name: 'show_min_max', selector: { boolean: {} } },
-            { name: 'y_scale', selector: { select: { options: [{ value: 'fixed', label: 'Fixed (full metric range)' }, { value: 'auto', label: 'Auto (zoom to data)' }], mode: 'dropdown' } } },
-            { name: 'show_status_banner', selector: { boolean: {} } },
-            { name: 'order', selector: { select: { multiple: true, mode: 'list', options: [
-              { value: 'co', label: 'CO' },
-              { value: 'radon', label: 'Radon' },
-              { value: 'co2', label: 'CO₂' },
-              { value: 'pm25', label: 'PM2.5' },
-              { value: 'pm10', label: 'PM10' },
-              { value: 'pm1', label: 'PM1' },
-              { value: 'pm03', label: 'PM0.3' },
-              { value: 'pm4', label: 'PM4' },
-              { value: 'hcho', label: 'HCHO' },
-              { value: 'tvoc', label: 'tVOC' },
-              { value: 'nox', label: 'NOx' },
-              { value: 'no2', label: 'NO₂' },
-              { value: 'o3', label: 'O₃' },
-              { value: 'o2', label: 'O₂' },
-              { value: 'c3h8', label: 'Propane' },
-              { value: 'humidity', label: 'Humidity' },
-              { value: 'temperature', label: 'Temperature' },
-              { value: 'noise', label: 'Noise' },
-              { value: 'pressure', label: 'Pressure' }
-            ] } } },
-            { name: 'display', selector: { select: { options: [{ value: 'full', label: 'Full (graphs and details)' }, { value: 'compact', label: 'Compact (status badge only)' }, { value: 'expandable', label: 'Expandable (compact, tap to expand)' }], mode: 'dropdown' } } },
-            { name: 'compact_alerts', selector: { boolean: {} } },
-            { name: 'auto_expand', selector: { boolean: {} } },
-            { name: 'tap_action', selector: { ui_action: {} } },
-            { name: 'hold_action', selector: { ui_action: {} } },
-            { name: 'double_tap_action', selector: { ui_action: {} } },
-            { name: 'recommendation_action', selector: { ui_action: {} } },
-            { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }, { value: 'hu', label: 'Magyar' }, { value: 'pl', label: 'Polski' }], mode: 'dropdown' } } },
-            { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
-            { name: 'temperature_decimals', selector: { boolean: {} } },
-            { name: 'radon_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor)' }, { value: 'pCi/L', label: 'pCi/L (US)' }, { value: 'Bq/m³', label: 'Bq/m³ (International)' }], mode: 'dropdown' } } },
-            { name: 'tvoc_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto-detect' }, { value: 'ppb', label: 'Absolute (ppb)' }, { value: 'index', label: 'VOC Index (Sensirion)' }], mode: 'dropdown' } } },
-            { name: 'nox_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto-detect' }, { value: 'ppb', label: 'Absolute (ppb)' }, { value: 'index', label: 'NOx Index (Sensirion)' }], mode: 'dropdown' } } },
-          ]
-        }
-      ];
-    }
-
-    render() {
-      if (!this._config) return html``;
-
-      return html`
-        <div class="card-config">
-          <ha-form
-            .hass=${this.hass}
-            .data=${{ compact_alerts: true, show_status_banner: true, ...this._config }}
-            .schema=${this._schema()}
-            .computeLabel=${this._computeLabel}
-            @value-changed=${this._valueChanged}
-          ></ha-form>
-        </div>
-      `;
-    }
-
-    _valueChanged(ev) {
-      const newConfig = { type: 'custom:air-quality-card', ...ev.detail.value };
-      // compact_alerts is injected into the form data as default-true; don't
-      // persist it to YAML unless the user actually turned it off.
-      if (newConfig.compact_alerts === true) delete newConfig.compact_alerts;
-      if (newConfig.show_status_banner === true) delete newConfig.show_status_banner;
-      this.dispatchEvent(new CustomEvent('config-changed', {
-        detail: { config: newConfig },
-        bubbles: true,
-        composed: true
-      }));
-    }
-
-    static get styles() {
-      return css`
-        .card-config {
-          padding: 16px;
-        }
-      `;
-    }
-  }
-
-  customElements.define('air-quality-card-editor', AirQualityCardEditor);
+  };
 }
-
