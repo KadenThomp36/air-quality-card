@@ -190,9 +190,12 @@ section('Temperature Decimals');
 card._config.temperature_decimals = false;
 assert(card._formatTemp(21.4) === '21', 'Rounds to whole number by default');
 assert(card._formatTemp(21.6) === '22', 'Rounds up by default');
+assert(card._formatGraphValue(21.4, '°C') === 21, 'Graph min/max rounds temperature by default');
 card._config.temperature_decimals = true;
 assert(card._formatTemp(21.4) === '21.4', 'Shows one decimal when enabled');
 assert(card._formatTemp(22) === '22.0', 'Pads whole number to one decimal when enabled');
+assert(card._formatGraphValue(21.4, '°C') === '21.4', 'Graph min/max shows decimal when enabled');
+assert(card._formatGraphValue(500, 'ppm') === 500, 'Non-temperature graph values stay rounded');
 card._config.temperature_decimals = false;
 
 // ============================================================

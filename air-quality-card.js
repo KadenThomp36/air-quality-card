@@ -485,7 +485,8 @@ class AirQualityCard extends HTMLElement {
 
   _formatGraphValue(value, unit) {
     if (unit === 'pCi/L') return value.toFixed(1);
-    if (unit === 'ppm' || unit === 'ppb' || unit === 'p/0.1L' || unit === 'Bq/m³' || unit === '%' || unit === '°F' || unit === '°C') {
+    if (unit === '°F' || unit === '°C') return this._config.temperature_decimals ? value.toFixed(1) : Math.round(value);
+    if (unit === 'ppm' || unit === 'ppb' || unit === 'p/0.1L' || unit === 'Bq/m³' || unit === '%') {
       return Math.round(value);
     }
     return value.toFixed(1);
