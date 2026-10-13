@@ -2043,12 +2043,70 @@ section('Escaping, stub config, suggestions, grid options');
   assert(grid.columns === 12 && grid.min_columns === 6, 'sections-view grid options');
 }
 
+section('History lifecycle (review fixes)');
+{
+  // A websocket reconnect drops the old subscription without calling its
+  // unsubscribe (ids are reused on the new socket) and keeps one listener.
+  const subs = [];
+  const listeners = [];
+  const conn = mockConnection(subs);
+  conn.addEventListener = (type, fn) => { if (type === 'ready') listeners.push(fn); };
+  conn.removeEventListener = (type, fn) => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); };
+  const c = makeCard({ co2_entity: 'sensor.co2' }, { 'sensor.co2': '700' }, { connection: conn });
+  c._renderGraphs = () => {};
+  c._loadHistory();
+  assert(listeners.length === 1, 'one ready listener');
+  let staleUnsubCalled = false;
+  c._historyUnsub = Promise.resolve(() => { staleUnsubCalled = true; });
+  listeners.slice().forEach(fn => fn());
+  assert(subs.length === 2, 'reconnect resubscribes');
+  assert(listeners.length === 1, 'still exactly one ready listener after reconnect');
+  setTimeout(() => assert(!staleUnsubCalled, 'stale unsubscribe is never called after a reconnect'), 0);
+  c._unsubscribeHistory();
+  assert(listeners.length === 0, 'unsubscribing removes the ready listener');
+  assert(c._historyLoaded === false, 'unsubscribing marks history as not loaded (resubscribes on next show)');
+
+  // A card HA hasn't attached yet must not subscribe from the hass setter
+  const detachedSubs = [];
+  const d = new CardClass();
+  d.setConfig({ co2_entity: 'sensor.co2' });
+  Object.defineProperty(d, 'isConnected', { value: false });
+  d._initialRender = () => {};
+  d._updateStates = () => {};
+  d.hass = { config: { unit_system: {} }, states: {}, locale: { language: 'en' }, connection: mockConnection(detachedSubs) };
+  assert(detachedSubs.length === 0, 'detached card does not subscribe');
+
+  // A failed subscription leaves no timer or listener behind
+  const failing = makeCard({ co2_entity: 'sensor.bad' }, {}, {
+    connection: { subscribeMessage: () => Promise.reject(new Error('invalid_entity_ids')), addEventListener() {}, removeEventListener() {} }
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  failing._loadHistory();
+  setTimeout(() => {
+    console.warn = warn;
+    assert(failing._redrawTimer === null && failing._historyUnsub === null, 'failed subscription is fully cleaned up');
+  }, 0);
+}
+
+section('"Nothing" actions and tier boundaries (review fixes)');
+{
+  const c = makeCard({ co2_entity: 'sensor.co2', tap_action: { action: 'none' }, recommendation_action: { action: 'none' } }, { 'sensor.co2': '700' });
+  assert(!c._hasAction('tap_action') && !c._hasAction('recommendation_action'), 'action "none" counts as unset');
+  assert(c._hasAction('tap_action') === false && makeCard({ co2_entity: 'sensor.co2', tap_action: { action: 'more-info' } })._hasAction('tap_action'), 'a real action counts');
+  const b = makeCard({ co2_entity: 'sensor.co2' }, { 'sensor.co2': '1000' });
+  assert(b._getRecommendationKey() === 'open_window' && b._getOverallStatus().status === 'Fair' && b._getMetricStatus('co2', 1000) === 'Elevated',
+    'a reading exactly on a boundary gets the same tier from badge, header and recommendation');
+}
+
 // ============================================================
 // SUMMARY
 // ============================================================
 
-console.log(`\n${'='.repeat(40)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
-console.log(`${'='.repeat(40)}`);
-
-process.exit(failed > 0 ? 1 : 0);
+// Some lifecycle checks above settle on the next tick.
+setTimeout(() => {
+  console.log(`\n${'='.repeat(40)}`);
+  console.log(`Results: ${passed} passed, ${failed} failed`);
+  console.log(`${'='.repeat(40)}`);
+  process.exit(failed > 0 ? 1 : 0);
+}, 10);

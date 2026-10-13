@@ -771,6 +771,7 @@ class AirQualityCard extends HTMLElement {
     if (desired === this._expanded) return;
     this._expanded = desired;
     this._initialRender();
+    this._updateStates();
     if (this._expanded && !this._historyLoaded) {
       this._loadHistory();
     } else if (this._expanded && this._historyLoaded) {
@@ -905,8 +906,10 @@ class AirQualityCard extends HTMLElement {
     if (!this._rendered) {
       this._initialRender();
       this._rendered = true;
-      // Compact mode doesn't draw graphs, so skip the history subscription
-      if (!this._isCompact()) this._loadHistory();
+      // Compact mode doesn't draw graphs, so skip the history subscription.
+      // A card HA hasn't attached yet (e.g. hidden by a visibility condition)
+      // subscribes from connectedCallback instead, so nothing leaks.
+      if (!this._isCompact() && this.isConnected !== false) this._loadHistory();
     } else if (old && old.locale !== hass.locale) {
       // Labels and number/time formats are baked into the markup — rebuild.
       this._numberFormats = null;
@@ -983,9 +986,16 @@ class AirQualityCard extends HTMLElement {
   // Dispatch HA's standard action event for tap/hold/double_tap. HA's action
   // handler reads tap_action/hold_action/double_tap_action from the config.
   // Pattern documented at developers.home-assistant.io/blog/2023/07/07.
+  // An action the user actually configured — the editor's "Nothing" choice
+  // stores {action: 'none'}, which must not make the card look clickable.
+  _hasAction(key) {
+    const action = this._config[key];
+    return !!action && action.action !== 'none';
+  }
+
   _fireAction(action) {
     const actionKey = `${action}_action`;
-    if (!this._config[actionKey]) return;
+    if (!this._hasAction(actionKey)) return;
     const event = new CustomEvent('hass-action', {
       bubbles: true,
       composed: true,
@@ -1037,19 +1047,35 @@ class AirQualityCard extends HTMLElement {
     );
     this._historyUnsub.catch((e) => {
       console.warn('Air Quality Card: history subscription failed:', e);
-      if (this._historyToken === token) this._historyUnsub = null;
+      if (this._historyToken === token) this._unsubscribeHistory();
     });
-    // After a websocket reconnect, start over with a fresh window rather than
-    // replaying the original start_time (HA's history-graph does the same).
-    this._historyConnection = connection;
-    this._onReconnect = this._onReconnect || (() => { this._unsubscribeHistory(); this._loadHistory(); });
-    connection.addEventListener?.('ready', this._onReconnect);
+    // After a websocket reconnect (also every time HA resumes a backgrounded
+    // tab), start over with a fresh window rather than replaying the original
+    // start_time — HA's own history-graph does the same. Registered once per
+    // connection, not per subscription.
+    if (this._historyConnection !== connection) {
+      this._historyConnection?.removeEventListener?.('ready', this._onReconnect);
+      connection.addEventListener?.('ready', this._onReconnect);
+      this._historyConnection = connection;
+    }
     // Slide the window forward even when no sensor reports a new value.
     this._redrawTimer = setInterval(() => this._onRedrawTick(), 60000);
   }
 
+  // The old subscription died with the old socket. Its unsubscribe function
+  // must not be called: the library reuses message ids on the new connection,
+  // so it would cancel some other subscription. Drop it and resubscribe.
+  _onReconnect = () => {
+    this._historyUnsub = null;
+    this._historyToken = null;
+    clearInterval(this._redrawTimer);
+    this._redrawTimer = null;
+    this._loadHistory();
+  };
+
   _unsubscribeHistory() {
     this._historyToken = null;
+    this._historyLoaded = false; // the data stops being live; resubscribe on next show
     if (this._historyUnsub) {
       this._historyUnsub.then(unsub => unsub()).catch(() => {});
       this._historyUnsub = null;
@@ -1447,10 +1473,10 @@ class AirQualityCard extends HTMLElement {
 
     // Life-safety first, and above everything else — including a configured
     // air_quality_entity, which knows nothing about a CO or gas leak.
-    if (co !== null && co > T('co')[2]) return dangerous;
+    if (co !== null && co >= T('co')[2]) return dangerous;
     if (c3h8 !== null && c3h8 >= T('c3h8')[2]) return dangerous;
     if (o2 !== null && o2 < T('o2')[0]) return dangerous;
-    if (co !== null && co > T('co')[1]) return poor;
+    if (co !== null && co >= T('co')[1]) return poor;
     if (c3h8 !== null && c3h8 >= T('c3h8')[1]) return poor;
     if (o2 !== null && o2 < T('o2')[1]) return poor;
 
@@ -1581,9 +1607,11 @@ class AirQualityCard extends HTMLElement {
     // run air purifier, etc.) and are nonsensical when monitoring ambient air.
     if (this._outdoorOnly) return null;
     const T = (m) => this._metricThresholds(m);
-    // `above(value, metric, tier)`: value is past that tier boundary. null
-    // (unconfigured/unavailable) is never above anything.
-    const above = (value, metric, tier) => value !== null && value > T(metric)[tier];
+    // `above(value, metric, tier)`: value has reached that tier boundary —
+    // the same `>=` the badges' tier lookup uses, so a CO₂ sensor reading
+    // exactly 1000 gets the same verdict from the badge, header and banner.
+    // null (unconfigured/unavailable) is never above anything.
+    const above = (value, metric, tier) => value !== null && value >= T(metric)[tier];
     const co = this._metricValue('co');
     const co2 = this._metricValue('co2');
     const pm25 = this._metricValue('pm25');
@@ -1688,9 +1716,9 @@ class AirQualityCard extends HTMLElement {
     // configured tap_action is ignored while collapsed; hold and double-tap
     // actions still work.
     const tap = expandable ? () => this._toggleExpanded()
-      : this._config.tap_action ? () => this._fireAction('tap') : null;
-    const hold = this._config.hold_action ? () => this._fireAction('hold') : null;
-    const doubleTap = this._config.double_tap_action ? () => this._fireAction('double_tap') : null;
+      : this._hasAction('tap_action') ? () => this._fireAction('tap') : null;
+    const hold = this._hasAction('hold_action') ? () => this._fireAction('hold') : null;
+    const doubleTap = this._hasAction('double_tap_action') ? () => this._fireAction('double_tap') : null;
     const clickable = !!(tap || hold || doubleTap);
     this.shadowRoot.innerHTML = `
       <style>
@@ -2191,7 +2219,7 @@ class AirQualityCard extends HTMLElement {
               <div class="recommendation-title" id="rec-title"></div>
               <div class="recommendation-subtitle" id="rec-subtitle"></div>
             </div>
-            ${this._config.recommendation_action ? `
+            ${this._hasAction('recommendation_action') ? `
             <button class="rec-action" id="rec-action" style="display:none" title="${escapeHtml(this._t('editor', 'recommendation_action'))}" aria-label="${escapeHtml(this._t('editor', 'recommendation_action'))}">
               <ha-icon id="rec-action-icon" icon="mdi:play-circle"></ha-icon>
             </button>
@@ -2382,8 +2410,8 @@ class AirQualityCard extends HTMLElement {
       case 'reduce_noise': subtitle = withValue(recKey, 'noise'); break;
       case 'all_good': subtitle = this._t('subtitle', 'air_quality_healthy'); break;
       case 'run_air_purifier':
-        if (pm25 !== null && pm25 > T('pm25')[3]) subtitle = this._ts('subtitle', 'purifier_pm25', { value: fmt('pm25', pm25) });
-        else if (pm10 !== null && pm10 > T('pm10')[3]) subtitle = this._ts('subtitle', 'purifier_pm10', { value: fmt('pm10', pm10) });
+        if (pm25 !== null && pm25 >= T('pm25')[3]) subtitle = this._ts('subtitle', 'purifier_pm25', { value: fmt('pm25', pm25) });
+        else if (pm10 !== null && pm10 >= T('pm10')[3]) subtitle = this._ts('subtitle', 'purifier_pm10', { value: fmt('pm10', pm10) });
         else if (pm25 !== null) subtitle = this._ts('subtitle', 'purifier_pm25', { value: fmt('pm25', pm25) });
         else subtitle = this._t('subtitle', 'purifier_generic');
         break;
@@ -2403,15 +2431,15 @@ class AirQualityCard extends HTMLElement {
         if (humidity !== null) subtitle = this._ts('subtitle', recKey, { value: fmt('humidity', humidity) });
         break;
       case 'consider_ventilating':
-        if (co2 !== null && co2 > T('co2')[1]) subtitle = this._ts('subtitle', 'consider_ventilating_co2', { value: fmt('co2', co2) });
-        else if (pm25 !== null && pm25 > T('pm25')[1]) subtitle = this._ts('subtitle', 'consider_ventilating_pm25', { value: fmt('pm25', pm25) });
+        if (co2 !== null && co2 >= T('co2')[1]) subtitle = this._ts('subtitle', 'consider_ventilating_co2', { value: fmt('co2', co2) });
+        else if (pm25 !== null && pm25 >= T('pm25')[1]) subtitle = this._ts('subtitle', 'consider_ventilating_pm25', { value: fmt('pm25', pm25) });
         else subtitle = this._t('subtitle', 'consider_ventilating_generic');
         break;
       case 'keep_windows_closed': {
         // Name whichever outdoor reading actually triggered the override.
         const { outdoorPm25, outdoorCo2, pm25Worse, co2Worse } = this._outdoorComparison();
         const outPm = (key) => this._ts('subtitle', key, { value: this._formatWithUnit('pm25', outdoorPm25, 'outdoor_pm25_entity') });
-        if (pm25Worse && (outdoorPm25 > T('pm25')[3] || pm25 === null)) subtitle = outPm('keep_closed_outdoor_pm25_poor');
+        if (pm25Worse && (outdoorPm25 >= T('pm25')[3] || pm25 === null)) subtitle = outPm('keep_closed_outdoor_pm25_poor');
         else if (pm25Worse) subtitle = outPm('keep_closed_outdoor_pm25');
         else if (co2Worse) subtitle = this._ts('subtitle', 'keep_closed_outdoor_co2', { value: this._formatWithUnit('co2', outdoorCo2, 'outdoor_co2_entity') });
         else subtitle = this._t('subtitle', 'keep_closed_generic');
@@ -2434,7 +2462,7 @@ class AirQualityCard extends HTMLElement {
     // Action button: only meaningful when there's actually something to act on.
     const recAction = this.shadowRoot.getElementById('rec-action');
     if (recAction) {
-      const actionable = this._config.recommendation_action && severity !== 'good';
+      const actionable = this._hasAction('recommendation_action') && severity !== 'good';
       recAction.style.display = actionable ? 'inline-flex' : 'none';
       if (actionable) recAction.style.color = accent;
     }
