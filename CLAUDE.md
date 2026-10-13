@@ -14,7 +14,7 @@ There is no build step and no `node_modules`. The shipped artifact is `air-quali
 node test.js          # run the full unit test suite (only available command)
 ```
 
-Tests pass/fail via a tiny inline `assert` helper; the script `process.exit(1)`s on any failure. There is no test runner, no linter, no formatter, no bundler. Don't add one unless asked.
+Tests pass/fail via a tiny inline `assert` helper; the script `process.exit(1)`s on any failure. There is no test runner, no linter, no formatter, no bundler. Don't add one unless asked. You can't run a single test on its own. The whole suite runs in well under a second, so run all of it and use `node test.js 2>&1 | grep FAIL` to see only the failures. Tests are grouped by `section('...')` headers, so you can grep the output for a section name.
 
 To test in Home Assistant: copy `air-quality-card.js` to `/config/www/air-quality-card/` and reload the dashboard. Manual UI testing is the only way to verify rendering — the test suite covers thresholds and logic, not the DOM.
 
@@ -35,23 +35,31 @@ To test in Home Assistant: copy `air-quality-card.js` to `/config/www/air-qualit
 
    This is intentional — the card has no dependencies and must run as a single file dropped into `/config/www/`. Don't try to `import` lit; it would break the distribution model.
 
+### Data tables at the top of the file
+
+- **`METRIC_DEFS`** — one entry per metric key: 4 ascending `defaultThresholds` → 5 tiers, a 5-color scale (`SCALE_*`), and 5 `labelKeys`. Colors and per-metric status badges all go through `_tieredValue` via `_getMetricColor(metric, v)` / `_getMetricStatus(metric, v)`. `_metricThresholds(metric)` maps each key to its `<x>_thresholds` config override (only valid if it's exactly 4 numbers). The per-metric `_getXColor`/`_getXStatus` methods are thin wrappers kept for backward compatibility. Keys that split by mode (`tvoc_ppb`/`tvoc_index`, `nox_ppb`/`nox_index`, `temp_c`/`temp_f`) are chosen at call time through `_tvocMetric()`/`_noxMetric()`/`_tempMetric()`.
+- **`TRANSLATIONS`** — `en`, `es`, `fr`, `de`, `pt`, `hu`, `pl`. Each has these groups: `status`, `recommendation`, `subtitle`, `radon`, `metric`, `editor`. `_t(group, key)` falls back to English, then to the raw key, so a missing translation shows English instead of breaking. Every `labelKeys` value must exist in each locale's `status` group. Subtitles use `{placeholder}` interpolation via `_ts()`. The editor has its own `_t`/`_resolveLanguage` copy, plus a `localFallbacks` map in `_computeLabel` for fields that have no `editor` translation yet.
+
 ### Card lifecycle (`AirQualityCard`)
 
-- `setConfig(config)` — validates that at least one sensor entity is configured, merges defaults, resets `_rendered` and `_historyLoaded` so the next `hass` setter rebuilds the card.
-- `set hass(hass)` — runs `_initialRender()` + `_loadHistory()` exactly once, then `_updateStates()` on every state change.
-- `_initialRender()` writes the entire `shadowRoot.innerHTML` (HTML + `<style>`) based on which entities are configured. Sections are conditionally included via `${showCO2 ? '...' : ''}` template literals.
+- `setConfig(config)` — validates that at least one entity in `indoorEntityKeys`/`outdoorEntityKeys` is set, merges defaults, resets `_rendered` and `_historyLoaded` so the next `hass` setter rebuilds the card. **Outdoor-only mode**: if only `outdoor_*` entities are set, `promotionMap` moves each into its indoor slot and sets `_outdoorOnly`, which makes `_getRecommendationKey()` return `null` (no recommendations).
+- `set hass(hass)` — runs `_initialRender()` + `_loadHistory()` exactly once (history is skipped in compact mode), then `_maybeAutoExpand()` + `_updateStates()` on every state change.
+- **Display modes** (`display: full | compact | expandable`): `_initialRender()` hands off to `_renderCompact()` when `_isCompact()` is true. The compact view's alert chips and `auto_expand` both come from `_getAbnormalMetrics()`, which ranks out-of-range metrics by color severity plus `PRIORITY_BOOST` so life-safety metrics are never truncated away.
+- `_initialRender()` writes the entire `shadowRoot.innerHTML` (HTML + `<style>`) based on which entities are configured. Sections are conditionally included via `${showCO2 ? '...' : ''}` template literals. DOM ids follow `<metric>-graph-container`, `<metric>-value`, `<metric>-svg`, etc. `_applyMetricOrder()` reorders cards with flexbox `order` according to `_getMetricOrder()`.
 - `_updateStates()` does **targeted DOM updates by `id`** — it does *not* re-render. When adding a new field, both `_initialRender` (to add the element) and `_updateStates` (to update it) need changes.
 - `_renderGraphs()` calls `_renderGraph()` per sensor, building SVG paths into pre-existing `<svg>` elements.
 
 ### The recommendation waterfall
 
-`_getRecommendation()` is a priority cascade — order matters and is load-bearing:
+`_getRecommendationKey()` is a priority cascade that returns a translation key. `_getRecommendation()` only translates that key, and `_getRecommendationIcon()` plus the subtitle logic in `_updateStates()` look up by the same key. Order matters and is load-bearing:
 
 1. **CO life-safety first** (`> 100` → Danger, `> 35` → Warning), then **Propane** (`>= 0.42%` → Danger, `>= 0.21%` → Warning) and **low O2** (`< 16%` → Danger, `< 19.5%` → Warning). All three are life-safety checks and are *never* suppressed by the outdoor-air override.
-2. CO2 / PM2.5 / PM10 / HCHO / NO2 / O3 / tVOC / humidity rules in priority order.
-3. **Outdoor override**: if an outdoor PM2.5 or CO2 entity reads worse than indoor, ventilation recs are swapped for "Run Air Purifier" or "Keep Windows Closed". The `ventilationRecs` allowlist intentionally excludes CO/propane/O2 recommendations — don't add them to it.
+2. CO2 / PM2.5 / PM10 / HCHO / NO2 / O3 / tVOC / humidity / noise rules in priority order.
+3. **Outdoor override**: if an outdoor PM2.5 or CO2 entity reads worse than indoor, ventilation recs are swapped for "Run Air Purifier" or "Keep Windows Closed". If there's no indoor counterpart, "worse" means the outdoor value is at or above the metric's elevated tier (`thresholds[2]`). Don't compare against an implicit 0 (#35). The `ventilationKeys` allowlist intentionally excludes CO/propane/O2 recommendations — don't add them to it.
 
-`_getOverallStatus()` is a separate cascade for the header badge color (CO, propane, and low O2 take priority over radon, which takes priority over CO2/PM2.5).
+A new recommendation key needs entries in `TRANSLATIONS.*.recommendation`, `*.subtitle` (usually plus a `_unknown` variant), the icon map, and the subtitle branch in `_updateStates()`.
+
+`_getOverallStatus()` is a separate cascade for the header badge color (CO, propane, and low O2 take priority over radon, which takes priority over CO2/PM2.5). **Exception:** if `air_quality_entity` is set, it short-circuits the whole cascade, including CO. The badge then shows that entity's state, or tiers a numeric index through `air_quality_thresholds`.
 
 `_getRadonAdvisory()` is its own banner, completely separate from the main recommendation. Radon changes over days/weeks and needs professional mitigation, not "open a window," so it has its own info/warning/danger tiers based on the EPA action level (4.0 pCi/L = 148 Bq/m³). It uses `max(short-term, long-term)` in Bq/m³.
 
@@ -69,23 +77,30 @@ To test in Home Assistant: copy `air-quality-card.js` to `/config/www/air-qualit
 
 A new sensor type touches **many places**. Use this checklist:
 
-1. `constructor` — add key to `this._history = { ... }`.
-2. `setConfig` — add to `hasEntity` validation OR-chain.
-3. `getCardSize` — add `+= 1`.
-4. `_loadHistory` — push promise + key.
-5. `_getXColor()` helper.
-6. `_initialRender` — add `showX` flag and the conditional HTML block (status row + graph card).
-7. `_updateStates` — read state, update DOM by id.
-8. `_renderGraphs` — call `_renderGraph` with min/max/unit.
-9. `_getRecommendation` and/or `_getOverallStatus` if it should drive recs.
-10. Editor `_schema()` and `_computeLabel()`.
-11. `test.js` — the `expectedKeys` list and color/recommendation tests.
+1. `METRIC_DEFS` entry (thresholds/colors/labelKeys, with a comment citing the guideline the tiers come from) + `_metricThresholds` override map + a thin `_getXColor()` wrapper.
+2. `TRANSLATIONS` — any new `status` labelKeys, plus `editor.<x>_entity`, in **every** locale (and `metric.<x>` if the label isn't a chemical formula).
+3. `constructor` — add key to `this._history = { ... }`.
+4. `setConfig` — add to `indoorEntityKeys` (and `outdoorEntityKeys`/`promotionMap` if it has an outdoor mirror).
+5. `getCardSize` — add `+= 1`.
+6. `_loadHistory` — push promise + key (outdoor mirrors go in the `outdoorSensors` list).
+7. `_getMetricOrder` `all` list, and `_getAbnormalMetrics` `labels` (plus `PRIORITY_BOOST` if it's life-safety).
+8. `_initialRender` — add `showX` flag and the conditional HTML block (status row + graph card).
+9. `_updateStates` — read state, update DOM by id.
+10. `_renderGraphs` — call `_renderGraph` with min/max/unit. `_setupGraphInteractions` — add to `graphIds`.
+11. `_getRecommendationKey` and/or `_getOverallStatus` if it should drive recs.
+12. Editor `_schema()` — the entity picker, and the `order` selector options.
+13. `README.md` — feature list and the Configuration Options table (`<x>_entity`, `<x>_thresholds`).
+14. `test.js` — the `expectedKeys` list and color/recommendation tests.
 
 The "outdoor mirror" pattern: most pollutants have an `outdoor_<x>_entity` counterpart that's plumbed through the same machinery (history key `outdoor_<x>`, dashed line in `_renderGraph`, optional input to outdoor-override logic).
 
+Unavailable sensors: `_getNumericState` returns 0 for non-numeric states. That's fine for most pollutants but wrong for bell-curve metrics (humidity, O2, pressure, temperature). Note how `_getAbnormalMetrics` uses `parseFloat` + `isFinite` instead, and how humidity defaults to 45 in the waterfall.
+
 ## Versioning and distribution
 
-- `CARD_VERSION` is a const at the top of `air-quality-card.js` (line 9). Bump it when shipping changes — it's logged to the browser console on load and is the canonical version for HACS.
+- `CARD_VERSION` is a const at the top of `air-quality-card.js` (line 9). Bump it when shipping changes — it's logged to the browser console on load and is the canonical version for HACS. The header doc comment (line 2) repeats the version, so bump both.
+- Release flow: work lands on a `feat/vX.Y.Z` branch (contributor PRs get merged into it, with credit to the `@author` in the merge message). That branch is merged into `main` as "Merge feat/vX.Y.Z → main for vX.Y.Z", then tagged `vX.Y.Z` and released with `gh release create`. Pre-releases use `-rcN` tags. Push or release only when Kaden asks.
+- When a change adds a config option or sensor, update the README's Configuration Options table too. HACS renders the README (`render_readme: true`), so it's the user-facing docs.
 - `hacs.json` declares the filename and min HA version (`2024.1.0`). Don't rename `air-quality-card.js` without updating `hacs.json`.
 - `.github/workflows/validate.yml` runs HACS validation on every push/PR — there's no CI for `node test.js`, so run it locally before committing.
 
