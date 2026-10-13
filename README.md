@@ -24,13 +24,14 @@ A custom Home Assistant Lovelace card for monitoring indoor air quality with bea
 - **Real-time monitoring** of CO, Radon, CO2, PM2.5, PM10, PM1, PM0.3, HCHO, tVOC, NOx, O2, NO2, O3, Propane, humidity, temperature, atmospheric pressure, and noise
 - **CO, Propane, and low-O2 safety alerts** -- critical red warnings for dangerous carbon monoxide, gas leak, or oxygen-deficient levels
 - **Radon advisory banner** -- separate long-term health advisory with EPA/WHO thresholds (supports pCi/L and Bq/m3)
-- **Gradient-colored graphs** that change color based on air quality levels
+- **Gradient-colored graphs** that change color based on air quality levels and update live as new readings arrive
 - **Interactive hover/touch** to see historical values at any point
-- **Health-based thresholds** following WHO 2021 guidelines and ASHRAE standards
+- **Health-based thresholds** anchored to WHO 2021, US EPA/OSHA and EU guidance where it exists (see [Health Thresholds](#health-thresholds))
+- **Unit-aware** — CO, NO₂, O₃ and HCHO readings in µg/m³, mg/m³, ppb or ppm are converted automatically; numbers, times and time zones follow your Home Assistant profile settings
 - **Actionable recommendations** like "Open Window" or "Run Air Purifier"
 - **Outdoor sensor comparison** - optional dashed line overlay with smart ventilation recommendations
 - **Tap to expand** - click any graph to open the full Home Assistant history view
-- **Visual configuration editor** - no YAML required, with collapsible sections for clean organization
+- **Visual configuration editor** - Home Assistant's built-in form editor, no YAML required, with collapsible sections for clean organization
 
 ## Installation
 
@@ -58,6 +59,7 @@ Or manually: open HACS, search for "Air Quality Card", click Install, and refres
 4. Primary sensors (CO₂, PM2.5, Humidity, Temperature) are always visible
 5. Expand "Additional Sensors" for Radon, CO, HCHO, tVOC, PM1, PM10, PM0.3, O2, NO2, O3, Propane, Pressure, Noise
 6. Expand "Outdoor Sensors" for comparison data
+7. Expand "Interactions" for tap / hold / double-tap actions and the recommendation button
 
 ### YAML Configuration
 
@@ -89,16 +91,16 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `pm1_entity` | string | No* | - | PM1 sensor entity ID |
 | `pm10_entity` | string | No* | - | PM10 sensor entity ID |
 | `pm03_entity` | string | No* | - | PM0.3 particle count sensor entity ID |
-| `co_entity` | string | No* | - | Carbon monoxide (CO) sensor entity ID |
+| `co_entity` | string | No* | - | Carbon monoxide (CO) sensor entity ID (ppm; ppb, mg/m³ and µg/m³ are converted automatically) |
 | `radon_entity` | string | No* | - | Radon sensor entity ID (supports pCi/L and Bq/m3) |
 | `radon_longterm_entity` | string | No | - | Radon long-term average sensor (shown as dashed overlay on radon graph) |
-| `hcho_entity` | string | No* | - | Formaldehyde (HCHO) sensor entity ID |
+| `hcho_entity` | string | No* | - | Formaldehyde (HCHO) sensor entity ID (ppb; ppm, mg/m³ and µg/m³ are converted automatically) |
 | `tvoc_entity` | string | No* | - | Volatile organic compounds (tVOC) sensor entity ID (absolute ppb or Sensirion VOC Index — auto-detected, see `tvoc_unit`) |
 | `nox_entity` | string | No* | - | NOx sensor entity ID (absolute ppb or Sensirion NOx Index — auto-detected, see `nox_unit`) |
 | `pm4_entity` | string | No* | - | PM4 sensor entity ID |
 | `o2_entity` | string | No* | - | Oxygen (O2) sensor entity ID (%vol) |
-| `no2_entity` | string | No* | - | Nitrogen Dioxide (NO2) sensor entity ID (µg/m³) |
-| `o3_entity` | string | No* | - | Ozone (O3) sensor entity ID (µg/m³) |
+| `no2_entity` | string | No* | - | Nitrogen Dioxide (NO2) sensor entity ID (µg/m³; ppb and ppm are converted automatically) |
+| `o3_entity` | string | No* | - | Ozone (O3) sensor entity ID (µg/m³; ppb and ppm are converted automatically) |
 | `c3h8_entity` | string | No* | - | Propane (C3H8) sensor entity ID (%vol — combustible-gas leak detection, e.g. air-Q's optional propane sensor) |
 | `humidity_entity` | string | No* | - | Humidity sensor entity ID |
 | `temperature_entity` | string | No* | - | Temperature sensor entity ID |
@@ -106,9 +108,9 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `noise_entity` | string | No* | - | Noise / sound level sensor entity ID (dB) |
 | `air_quality_entity` | string | No | - | Overall air quality index entity ([passthrough — see below](#air-quality-index-entity)) |
 | `hours_to_show` | number | No | 24 | Hours of history to display (1-168) |
-| `temperature_unit` | string | No | "auto" | Temperature unit: "auto" (detect from HA), "F" (Fahrenheit), or "C" (Celsius) |
-| `temperature_decimals` | boolean | No | `false` | Show the temperature reading with one decimal place (e.g. `21.4°`) instead of rounding to a whole number. Applies to the indoor value, the outdoor `(out: …)` suffix, and the graph tooltip |
-| `radon_unit` | string | No | "auto" | Radon unit: "auto" (detect from sensor), "pCi/L" (US), or "Bq/m3" (International) |
+| `temperature_unit` | string | No | "auto" | Temperature unit: "auto" (the sensor's unit, else HA's unit system), "F" (Fahrenheit), or "C" (Celsius) |
+| `temperature_decimals` | boolean | No | `false` | Show the temperature reading with one decimal place (e.g. `21.4°`) instead of rounding to a whole number. Applies to the indoor value, the outdoor `(out: …)` suffix, and the graph tooltip. Without it, a "Display precision" set on the entity in Home Assistant is used |
+| `radon_unit` | string | No | "auto" | Radon unit: "auto" (detect from sensor), "pCi/L" (US), or "Bq/m³" (International; "Bq/m3" also works) |
 | `tvoc_unit` | string | No | "auto" | tVOC measurement type: "auto" (detect from sensor), "ppb" (absolute), or "index" (Sensirion VOC Index) |
 | `nox_unit` | string | No | "auto" | NOx measurement type: "auto" (detect from sensor), "ppb" (absolute), or "index" (Sensirion NOx Index) |
 | `show_min_max` | boolean | No | `false` | Overlay the min/max values of the displayed time window directly at the data points on the graph |
@@ -172,7 +174,9 @@ air_quality_entity: sensor.healthy_home_coach_air_quality
 air_quality_thresholds: [1, 2, 3, 4]  # Netatmo health index: 0=Excellent … 4=Very Poor
 ```
 
-If you leave it unset, the card computes the status itself from your configured CO / CO₂ / PM2.5 / radon sensors (CO and radon are prioritized as life-safety/health concerns).
+If you leave it unset, the card computes the status itself: the worst tier among all your configured air-quality sensors, with CO, propane and low oxygen taking priority as life-safety concerns and radon degrading the status at the EPA action level. A card with only comfort sensors (temperature, humidity, noise) shows their status instead.
+
+Even with an `air_quality_entity`, a dangerous CO, propane or low-oxygen reading always takes over the badge — an index entity knows nothing about a gas leak.
 
 ### Sensor Order
 
@@ -230,9 +234,10 @@ tap_action:
 ```
 
 Compact mode:
-- Skips the history fetch (faster initial load)
+- Skips the history subscription (faster initial load)
 - Status badge updates in real-time from current sensor values
-- All three standard HA actions are supported: `tap_action`, `hold_action`, `double_tap_action`
+- All three standard HA actions are supported: `tap_action`, `hold_action`, `double_tap_action` (with HA's timings: hold is 500 ms; with a double-tap action set, a single tap waits 250 ms to tell the two apart)
+- The card is keyboard-accessible: Tab to it and press Enter or Space for the tap action
 
 ### Expandable Display Mode
 
@@ -246,7 +251,7 @@ pm25_entity: sensor.air_quality_pm25
 display: expandable
 ```
 
-In expandable mode the tap gesture is reserved for expand/collapse, so `tap_action` is ignored.
+In expandable mode the tap gesture is reserved for expand/collapse, so `tap_action` is ignored (`hold_action` and `double_tap_action` still work).
 
 If your layout gives the card a fixed height (e.g. a sections view where the card was resized, which sets `grid_options: rows:`), the expanded card pops over the cards below it instead of pushing them down. For the push-down behavior in a sections view, set the card's grid options to size automatically (`grid_options: rows: auto`).
 
@@ -262,7 +267,7 @@ auto_expand: true
 
 ### Custom Thresholds
 
-The default thresholds follow WHO 2021 / ASHRAE / EPA guidelines, but you can override any of them. Provide an array of **4 ascending numbers** — these become the 5-tier boundaries (Excellent / Good / Moderate / Elevated / Poor for most metrics; see [Health Thresholds](#health-thresholds) for the labels per metric).
+The default thresholds follow WHO 2021 / EPA / OSHA / EU guidance where it exists, but you can override any of them. Provide an array of **4 ascending numbers** — these become the 5-tier boundaries (Excellent / Good / Moderate / Elevated / Poor for most metrics; see [Health Thresholds](#health-thresholds) for the labels per metric).
 
 ```yaml
 type: custom:air-quality-card
@@ -275,7 +280,9 @@ pm25_thresholds: [3, 8, 15, 25]
 ```
 
 Notes:
-- All custom thresholds are in the same unit as your sensor reports. For radon, the thresholds are always in **Bq/m³** — the card converts your sensor value before comparison.
+- All custom thresholds are in the same unit as your sensor reports. For CO, HCHO, NO₂ and O₃ that means: with the default thresholds the card converts your reading into the default unit (e.g. µg/m³ CO → ppm); as soon as you set `co_thresholds` (etc.) the reading stays in your sensor's unit and your thresholds are compared against it directly.
+- For radon, the thresholds are always in **Bq/m³** — the card converts your sensor value before comparison.
+- Custom thresholds drive everything: the per-sensor badges, the header status, the recommendations, and (in the default fixed y-scale) the graph's range.
 - Invalid thresholds (wrong length, non-numeric, etc.) silently fall back to the defaults. No errors thrown.
 - Colors are not customizable — only the boundaries between them.
 
@@ -284,6 +291,8 @@ Notes:
 The card auto-detects your Home Assistant frontend language and translates the status badge, recommendations, recommendation subtitles, radon advisory titles, and editor labels. Translations included so far: **English, Spanish, French, German, Portuguese, Hungarian, Polish** (Spanish/French/German contributed by [@b0rv3g4r4](https://github.com/b0rv3g4r4) on PR #11, Portuguese by [@mzspicoli](https://github.com/mzspicoli) on PR #33, Hungarian by [@fema3832](https://github.com/fema3832) on PR #42, Polish by [@diijkstra](https://github.com/diijkstra) on PR #54).
 
 If auto-detection picks the wrong language, force one explicitly with `language: es` (or `en` / `fr` / `de` / `pt` / `hu` / `pl`).
+
+Graph time labels and hover tooltips follow the **Time format** setting in your Home Assistant profile. Select **24 hours** to use a 24-hour clock while keeping the card in English, or **12 hours** for AM/PM. **System default** uses your browser's clock format; **Language** uses the card's language. The profile's **Time zone** setting ("Use server time zone") and **Number format** (decimal comma, grouping) are honored too.
 
 To contribute a new language: open a PR adding a block to the `TRANSLATIONS` const in `air-quality-card.js`. Copy the `en:` block, rename the key (e.g. `it:` for Italian), and translate the values — keep the structure identical. English is the fallback for any missing key.
 
@@ -316,7 +325,9 @@ outdoor_temperature_entity: sensor.outdoor_temperature
 
 The card automatically generates actionable recommendations based on your sensor readings -- no template sensors needed. It evaluates CO, Propane, O2, CO2, PM2.5, PM10, HCHO, NO2, O3, tVOC, and humidity levels, and when outdoor sensors are configured, it avoids suggesting ventilation when outdoor air is worse.
 
-**CO, Propane, and low-O2 safety alerts** are always shown regardless of outdoor conditions -- carbon monoxide, a propane gas leak, and oxygen deficiency are all life-safety concerns. If any of them exceed dangerous levels, the card shows a critical red warning with instructions to leave the area.
+**CO, Propane, and low-O2 safety alerts** are always shown regardless of outdoor conditions -- carbon monoxide, a propane gas leak, and oxygen deficiency are all life-safety concerns. If any of them exceed dangerous levels, the card shows a critical red warning with instructions to leave the area. Elevated CO (above 9 ppm) recommends ventilating ahead of any particulate advice, since an air purifier does nothing for CO.
+
+An **unavailable** sensor is shown as "—  Unavailable" and is left out of the status and recommendations — it never counts as a reading of 0.
 
 **Radon advisory banner** appears as a separate element below the main recommendation when radon levels are elevated. Unlike other pollutants, radon changes over days/weeks and requires professional mitigation (not "open a window"), so it uses its own advisory system instead of the main recommendation waterfall. The advisory shows at three levels: informational (approaching action level), warning (above EPA action level of 4.0 pCi/L / 148 Bq/m3), and danger (significantly elevated, mitigation needed).
 
@@ -339,9 +350,10 @@ Based on EPA and WHO guidelines:
 | Good | 1.3-2.7 | 48-100 | Light Green | Below WHO reference level |
 | Elevated | 2.7-4.0 | 100-148 | Yellow | Approaching EPA action level |
 | High | 4.0-8.0 | 148-300 | Orange | Above EPA action level, consider mitigation |
-| Dangerous | > 8.0 | > 300 | Red | Professional mitigation needed |
+| Dangerous | > 8.1 | > 300 | Red | WHO's upper reference level — professional mitigation needed |
 
 ### CO2 (Carbon Dioxide)
+CO₂ is a ventilation proxy, not a health limit — ASHRAE 62.1 sets no CO₂ limit, and ASHRAE's 2025 position document notes CO₂ alone isn't a reliable overall indoor-air-quality indicator. These are common ventilation bands:
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
 | Excellent | < 600 ppm | Green | Fresh outdoor air levels |
@@ -357,8 +369,8 @@ Based on WHO 2021 Air Quality Guidelines:
 | Excellent | < 5 µg/m³ | Green | WHO annual guideline |
 | Good | 5-15 µg/m³ | Light Green | WHO 24-hour guideline |
 | Moderate | 15-25 µg/m³ | Yellow | Slightly elevated |
-| Elevated | 25-35 µg/m³ | Orange | Consider air purifier |
-| Poor | > 35 µg/m³ | Red | Air purifier recommended |
+| Elevated | 25-35 µg/m³ | Orange | WHO interim target 4 — consider air purifier |
+| Poor | > 35 µg/m³ | Red | Above the US EPA 24-hour standard — air purifier recommended |
 
 ### PM10 (Coarse Particulate Matter)
 Based on WHO 2021 Air Quality Guidelines:
@@ -370,7 +382,8 @@ Based on WHO 2021 Air Quality Guidelines:
 | Elevated | 75-150 µg/m³ | Orange | Consider air purifier |
 | Poor | > 150 µg/m³ | Red | Air purifier recommended |
 
-### PM1 (Ultrafine Particulate Matter)
+### PM1 (Submicron Particulate Matter)
+There's no WHO/EPA guideline for PM1; since PM1 is a subset of PM2.5, it borrows the PM2.5 bands.
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
 | Excellent | < 5 µg/m³ | Green | Clean air |
@@ -378,6 +391,16 @@ Based on WHO 2021 Air Quality Guidelines:
 | Moderate | 15-25 µg/m³ | Yellow | Slightly elevated |
 | Elevated | 25-35 µg/m³ | Orange | Consider air purifier |
 | Poor | > 35 µg/m³ | Red | Air purifier recommended |
+
+### PM4
+No WHO/EPA guideline exists; the upper bands reuse WHO's PM2.5 24-hour interim targets.
+| Level | Range | Color | Meaning |
+|-------|-------|-------|---------|
+| Excellent | < 10 µg/m³ | Green | Clean air |
+| Good | 10-25 µg/m³ | Light Green | Acceptable |
+| Moderate | 25-37.5 µg/m³ | Yellow | Slightly elevated |
+| Elevated | 37.5-50 µg/m³ | Orange | Consider air purifier |
+| Poor | > 50 µg/m³ | Red | Air purifier recommended |
 
 ### PM0.3 (Particle Count)
 | Level | Range | Color | Meaning |
@@ -389,16 +412,17 @@ Based on WHO 2021 Air Quality Guidelines:
 | Poor | > 5000 p/0.1L | Red | Air purifier recommended |
 
 ### HCHO (Formaldehyde)
+Health Canada's limits are 40 ppb (8-hour) and 100 ppb (1-hour); WHO's 30-minute guideline (0.1 mg/m³) is ≈81 ppb. Sensors reporting µg/m³ or mg/m³ are converted to ppb.
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
-| Excellent | < 20 ppb | Green | Safe levels |
+| Excellent | < 20 ppb | Green | Low |
 | Good | 20-50 ppb | Light Green | Acceptable |
 | Moderate | 50-100 ppb | Yellow | Consider ventilation |
 | Elevated | 100-200 ppb | Orange | Ventilation needed |
 | Poor | > 200 ppb | Red | Take action |
 
 ### tVOC (Volatile Organic Compounds)
-The card auto-detects whether your sensor reports absolute concentration (ppb) or the unitless Sensirion VOC Index (0-500, centered at 100); force a mode with `tvoc_unit` if needed.
+The card auto-detects whether your sensor reports absolute concentration (ppb) or the unitless Sensirion VOC Index (1-500, centered at 100); force a mode with `tvoc_unit` if needed.
 
 Absolute (ppb):
 | Level | Range | Color | Meaning |
@@ -421,7 +445,7 @@ VOC Index (Sensirion):
 ### NOx (Nitrogen Oxides)
 Like tVOC, NOx comes in two flavors and the card auto-detects which one your sensor reports (force with `nox_unit`). Sensirion SGP41-based sensors (AirGradient ONE / Open Air, ESPHome `sgp4x`) report the unitless **NOx Index** — note its clean-air baseline is **1**, not 100 like the VOC Index.
 
-NOx Index (Sensirion) — bands follow Sensirion's integration guidance and AirGradient's dashboard:
+NOx Index (Sensirion) — 20 is Sensirion's example air-purifier trigger; 150/300 are judgement calls for clearly elevated/high:
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
 | Excellent | < 5 | Green | Clean-air baseline (1) |
@@ -440,7 +464,7 @@ Absolute (ppb) — anchored to WHO 2021 / EPA NO₂ standards (applied to NOx co
 | Poor | > 360 ppb | Red | EPA AQI Unhealthy and above |
 
 ### NO2 (Nitrogen Dioxide)
-Assumes µg/m³ (this card's default gas unit). Anchored to WHO 2021 Air Quality Guidelines (annual/24h) and the EU Ambient Air Quality Directive (annual/hourly limits). If your sensor reports ppb, override `no2_thresholds` (1 ppb ≈ 1.88 µg/m³):
+Compared in µg/m³; ppb/ppm sensors are converted automatically (1 ppb ≈ 1.88 µg/m³). Anchored to WHO 2021 Air Quality Guidelines (annual/24h) and the EU Ambient Air Quality Directive 2008/50 (annual/hourly limits) — the 2024/2881 recast lowers the annual limit to 20 µg/m³ from 2030:
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
 | Excellent | < 10 µg/m³ | Green | WHO 2021 annual guideline |
@@ -450,7 +474,7 @@ Assumes µg/m³ (this card's default gas unit). Anchored to WHO 2021 Air Quality
 | Poor | > 200 µg/m³ | Red | Exceeds EU AQD hourly limit — ventilation needed |
 
 ### O3 (Ozone)
-Assumes µg/m³. Anchored to WHO 2021 Air Quality Guidelines (peak-season/8h) and the EU Ambient Air Quality Directive (information/alert thresholds). If your sensor reports ppb, override `o3_thresholds` (1 ppb ≈ 2.00 µg/m³):
+Compared in µg/m³; ppb/ppm sensors are converted automatically (1 ppb ≈ 1.96 µg/m³). Anchored to WHO 2021 Air Quality Guidelines (peak-season/8h) and the EU Ambient Air Quality Directive (information/alert thresholds):
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
 | Excellent | < 60 µg/m³ | Green | WHO 2021 peak-season guideline |
@@ -460,17 +484,17 @@ Assumes µg/m³. Anchored to WHO 2021 Air Quality Guidelines (peak-season/8h) an
 | Poor | > 240 µg/m³ | Red | EU AQD alert threshold — ventilation needed |
 
 ### O2 (Oxygen)
-There's no WHO/EPA ambient-O2 guideline, so this borrows OSHA's confined-space oxygen safety bands — a bell around the 20.9% ambient baseline, but safety-colored (red tails, not amber) since both oxygen-deficient and oxygen-enriched atmospheres are genuine hazards. Below 16% is treated as life-safety, same tier as CO (see below):
+There's no WHO/EPA ambient-O2 guideline, so this borrows OSHA 1910.146's confined-space oxygen bands — a bell around the 20.9% ambient baseline, but safety-colored (red tails, not amber) since both oxygen-deficient and oxygen-enriched atmospheres are genuine hazards. Below 16% is treated as life-safety, same tier as CO (see below):
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
-| Dangerous | < 16% | Red | OSHA dangerous impairment level — leave the area |
+| Dangerous | < 16% | Red | Impaired thinking and coordination set in (OSHA interpretations, CGA tables) — leave the area |
 | Low | 16-19.5% | Orange | Below OSHA's oxygen-deficient threshold |
 | Normal | 19.5-23.5% | Green | Typical ambient range |
 | Enriched | 23.5-25% | Orange | Above OSHA's oxygen-enriched (fire risk) threshold |
 | Dangerous | > 25% | Red | Significant fire hazard |
 
 ### Propane (C3H8)
-Not a WHO/EPA air-quality pollutant — it's a combustible-gas leak/explosion hazard, so it's treated as **life-safety like CO** rather than a ventilation-waterfall metric. Assumes raw %vol (not pre-scaled to %LEL). Propane's lower explosive limit (LEL) is 2.1%vol; bands anchor to 10%/20%/50% of that, the standard combustible-gas-detector alarm points (NFPA 715 / UL 2075 convention):
+Not a WHO/EPA air-quality pollutant — it's a combustible-gas leak/explosion hazard, so it's treated as **life-safety like CO** rather than a ventilation-waterfall metric. Assumes raw %vol (not pre-scaled to %LEL). Propane's lower explosive limit (LEL) is 2.1%vol. 10% LEL (0.21%) is OSHA's hazardous-atmosphere point and NIOSH's IDLH; 20% and 50% LEL are common industrial-detector high alarms (residential UL 1484 gas alarms trip at ≤25% LEL):
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
 | Safe | < 0.05% | Green | Background levels |
@@ -480,16 +504,17 @@ Not a WHO/EPA air-quality pollutant — it's a combustible-gas leak/explosion ha
 | Dangerous | > 1.05% | Red | Gas Leak Danger — evacuate immediately |
 
 ### Noise
-Anchored to WHO community noise guidance — 35 dB is the indoor living-area guideline, 55 dB the serious-annoyance level, and sustained exposure above 70 dB risks hearing damage. Above 70 dB the card recommends reducing the noise level:
+Anchored to WHO's Guidelines for Community Noise — 35 dB is the indoor living-area guideline, 55 dB the *outdoor* serious-annoyance level, and 70 dB (as a 24-hour average) the hearing-impairment level. WHO's values are long-term averages, so treat a single loud reading as a nudge. Above 70 dB the card recommends reducing the noise level:
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
 | Quiet | < 35 dB | Green | WHO indoor living-area guideline |
 | Moderate | 35-45 dB | Light Green | Typical occupied-home background |
 | Elevated | 45-55 dB | Yellow | Noticeable, may disturb concentration/sleep |
-| Loud | 55-70 dB | Orange | WHO serious-annoyance level |
+| Loud | 55-70 dB | Orange | Above WHO's outdoor serious-annoyance level |
 | Very Loud | > 70 dB | Red | Prolonged exposure may harm hearing |
 
 ### Humidity
+Following EPA guidance: keep indoor humidity below 60%, ideally 30–50%.
 | Level | Range | Color | Meaning |
 |-------|-------|-------|---------|
 | Too Dry | < 30% | Orange | Use humidifier |
@@ -499,7 +524,7 @@ Anchored to WHO community noise guidance — 35 dB is the indoor living-area gui
 | Too Humid | > 60% | Orange | Improve ventilation |
 
 ### Atmospheric Pressure
-Informational, not a health hazard — a wide green band keeps typical weather calm. Thresholds assume **hPa / mbar** (what Airthings and most HA sensors report); override `pressure_thresholds` for other units.
+Informational, not a health hazard — a wide green band keeps typical weather calm. Thresholds assume **hPa / mbar** (what Airthings and most HA sensors report); override `pressure_thresholds` for other units (e.g. `[29.2, 29.6, 30.2, 30.6]` for inHg) and the graph rescales to match.
 | Level | Range (hPa) | Color | Meaning |
 |-------|-------------|-------|---------|
 | Low | < 990 | Orange | Stormy / rapidly falling |
@@ -562,5 +587,7 @@ If you find this card useful, consider buying me a coffee!
 ## Credits
 
 - Thresholds based on [WHO 2021 Air Quality Guidelines](https://www.who.int/publications/i/item/9789240034228)
-- CO2 recommendations based on [ASHRAE Standard 62.1](https://www.ashrae.org/technical-resources/bookstore/standards-62-1-62-2)
+- CO2 bands are common ventilation-proxy levels; see [ASHRAE's position document on indoor CO2](https://www.ashrae.org/file%20library/about/position%20documents/pd_indoorcarbondioxide_2025.pdf) for why CO2 isn't a health limit
+- Radon levels from the [US EPA](https://www.epa.gov/radon/health-risk-radon) and [WHO](https://www.who.int/news-room/fact-sheets/detail/radon-and-health)
+- Oxygen bands from [OSHA 1910.146](https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.146); propane from the [NIOSH Pocket Guide](https://www.cdc.gov/niosh/npg/npgd0524.html)
 - CO thresholds based on [EPA/WHO carbon monoxide guidelines](https://www.epa.gov/co-pollution)
