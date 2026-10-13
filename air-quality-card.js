@@ -634,13 +634,27 @@ class AirQualityCard extends HTMLElement {
     return this._hass?.locale?.language || this._hass?.language || undefined;
   }
 
+  // The profile's clock format is independent of its language (#60).
+  _timeHourCycle() {
+    const format = this._hass?.locale?.time_format;
+    if (format === '12') return 'h12';
+    if (format === '24') return 'h23';
+    if (format === 'system') {
+      return new Intl.DateTimeFormat(undefined, { hour: 'numeric' })
+        .resolvedOptions().hour12 ? 'h12' : 'h23';
+    }
+    // 'language' and older HA versions keep the date locale's default.
+    return undefined;
+  }
+
   // Graph time labels adapt to the configured window (#53): plain times up
   // to a day, weekday + hour across a few days, calendar dates beyond that.
   _formatAxisTime(d) {
     const hours = Number(this._config.hours_to_show) || 24;
     const loc = this._dateLocale();
-    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
-    if (hours <= 96) return d.toLocaleString(loc, { weekday: 'short', hour: 'numeric' });
+    const hourCycle = this._timeHourCycle();
+    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit', hourCycle });
+    if (hours <= 96) return d.toLocaleString(loc, { weekday: 'short', hour: 'numeric', hourCycle });
     return d.toLocaleDateString(loc, { month: 'short', day: 'numeric' });
   }
 
@@ -648,8 +662,9 @@ class AirQualityCard extends HTMLElement {
   _formatTooltipTime(d) {
     const hours = Number(this._config.hours_to_show) || 24;
     const loc = this._dateLocale();
-    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
-    return d.toLocaleString(loc, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const hourCycle = this._timeHourCycle();
+    if (hours <= 24) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit', hourCycle });
+    return d.toLocaleString(loc, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hourCycle });
   }
 
   // Look up a translated string: _t('status', 'good') → 'Bueno' (es).
