@@ -145,7 +145,7 @@ outdoor_pm25_entity: sensor.outdoor_pm25
 | `air_quality_thresholds` | array | No | - | Interpret a numeric `air_quality_entity` through 5 tiers (Excellent/Good/Fair/Poor/Very Poor) instead of showing the raw number ([see below](#air-quality-index-entity)) |
 | `outdoor_pressure_entity` | string | No | - | Outdoor atmospheric pressure sensor for comparison |
 | `temperature_thresholds` | array | No | unit-dependent | Custom temperature thresholds (in the unit your sensor reports) |
-| `language` | string | No | "auto" | UI language. "auto" (use Home Assistant's), "en", "es", "fr", "de", "pt", "hu", or "pl" |
+| `language` | string | No | "auto" | UI language. "auto" (use Home Assistant's), "en", "es", "fr", "de", "pt", "hu", "pl" or "ru" |
 | `outdoor_co2_entity` | string | No | - | Outdoor CO2 sensor for comparison |
 | `outdoor_pm25_entity` | string | No | - | Outdoor PM2.5 sensor for comparison |
 | `outdoor_pm1_entity` | string | No | - | Outdoor PM1 sensor for comparison |
@@ -288,9 +288,9 @@ Notes:
 
 ### Language
 
-The card auto-detects your Home Assistant frontend language and translates the status badge, recommendations, recommendation subtitles, radon advisory titles, and editor labels. Translations included so far: **English, Spanish, French, German, Portuguese, Hungarian, Polish** (Spanish/French/German contributed by [@b0rv3g4r4](https://github.com/b0rv3g4r4) on PR #11, Portuguese by [@mzspicoli](https://github.com/mzspicoli) on PR #33, Hungarian by [@fema3832](https://github.com/fema3832) on PR #42, Polish by [@diijkstra](https://github.com/diijkstra) on PR #54).
+The card auto-detects your Home Assistant frontend language and translates the status badge, recommendations, recommendation subtitles, radon advisory titles, and editor labels. Translations included so far: **English, Spanish, French, German, Portuguese, Hungarian, Polish, Russian** (Spanish/French/German contributed by [@b0rv3g4r4](https://github.com/b0rv3g4r4) on PR #11, Portuguese by [@mzspicoli](https://github.com/mzspicoli) on PR #33, Hungarian by [@fema3832](https://github.com/fema3832) on PR #42, Polish by [@diijkstra](https://github.com/diijkstra) on PR #54).
 
-If auto-detection picks the wrong language, force one explicitly with `language: es` (or `en` / `fr` / `de` / `pt` / `hu` / `pl`).
+If auto-detection picks the wrong language, force one explicitly with `language: es` (or `en` / `fr` / `de` / `pt` / `hu` / `pl` / `ru`).
 
 Graph time labels and hover tooltips follow the **Time format** setting in your Home Assistant profile. Select **24 hours** to use a 24-hour clock while keeping the card in English, or **12 hours** for AM/PM. **System default** uses your browser's clock format; **Language** uses the card's language. The profile's **Time zone** setting ("Use server time zone") and **Number format** (decimal comma, grouping) are honored too.
 
