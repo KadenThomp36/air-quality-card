@@ -1,5 +1,5 @@
 /**
- * Air Quality Card v2.13.0
+ * Air Quality Card v2.14.0
  * A custom Home Assistant card for air quality visualization
  * Default thresholds anchor to WHO 2021 Air Quality Guidelines, US EPA/OSHA
  * limits and EU air-quality directives where such guidance exists; the
@@ -8,7 +8,7 @@
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.13.0';
+const CARD_VERSION = '2.14.0';
 
 // Shared color palettes for the 5-tier color scale used across metrics.
 const SCALE_AIRQUALITY = ['#4caf50', '#8bc34a', '#ffc107', '#ff9800', '#f44336']; // green → red
@@ -628,7 +628,7 @@ const TRANSLATIONS = {
       co_warning: 'Упозорење за CO — проветрите одмах', co_elevated: 'Повишен CO — проветрите',
       consider_ventilating: 'Размислите о проветравању', keep_windows_closed: 'Држите прозоре затворене',
       too_dry: 'Превише суво', too_humid: 'Превише влажно', ventilate_formaldehyde: 'Проветрите — формалдехид',
-      ventilate_vocs: 'Проветрите — повишена испарљива органска једињења (VOC)',
+      ventilate_vocs: 'Проветрите — повишен ниво VOC',
       propane_danger: 'Опасност од цурења гаса — евакуишите се', propane_warning: 'Упозорење за цурење гаса — проветрите одмах',
       o2_danger: 'Опасно низак кисеоник — напустите просторију', o2_warning: 'Низак кисеоник — проветрите одмах',
       ventilate_no2: 'Проветрите — повишен NO₂', ventilate_o3: 'Проветрите — повишен O₃',
@@ -722,7 +722,7 @@ const TRANSLATIONS = {
       co_warning: 'Upozorenje za CO — provetrite odmah', co_elevated: 'Povišen CO — provetrite',
       consider_ventilating: 'Razmislite o provetravanju', keep_windows_closed: 'Držite prozore zatvorene',
       too_dry: 'Previše suvo', too_humid: 'Previše vlažno', ventilate_formaldehyde: 'Provetrite — formaldehid',
-      ventilate_vocs: 'Provetrite — povišena isparljiva organska jedinjenja (VOC)',
+      ventilate_vocs: 'Provetrite — povišen nivo VOC',
       propane_danger: 'Opasnost od curenja gasa — evakuišite se', propane_warning: 'Upozorenje za curenje gasa — provetrite odmah',
       o2_danger: 'Opasno nizak kiseonik — napustite prostoriju', o2_warning: 'Nizak kiseonik — provetrite odmah',
       ventilate_no2: 'Provetrite — povišen NO₂', ventilate_o3: 'Provetrite — povišen O₃',
@@ -1066,7 +1066,9 @@ class AirQualityCard extends HTMLElement {
   //   2. hass.locale.language (modern HA, since the deprecation of hass.language)
   //   3. hass.language (older HA versions, deprecated but still present)
   //   4. 'en'
-  // Falls back to 'en' if the resolved code isn't shipped.
+  // The longest shipped prefix of the tag wins, case-insensitively, so HA's
+  // 'sr-Latn' picks the Latin pack while 'sr' / 'sr-RS' get Cyrillic and
+  // 'pt-BR' gets 'pt'. Falls back to 'en' if nothing matches.
   _resolveLanguage() {
     const explicit = this._config.language;
     let lang;
@@ -1075,8 +1077,14 @@ class AirQualityCard extends HTMLElement {
     } else {
       lang = this._hass?.locale?.language || this._hass?.language || 'en';
     }
-    const code = String(lang).split('-')[0].toLowerCase();
-    return TRANSLATIONS[code] ? code : 'en';
+    const shipped = Object.keys(TRANSLATIONS);
+    const parts = String(lang).toLowerCase().replace(/_/g, '-').split('-');
+    for (let n = parts.length; n > 0; n--) {
+      const tag = parts.slice(0, n).join('-');
+      const match = shipped.find((key) => key.toLowerCase() === tag);
+      if (match) return match;
+    }
+    return 'en';
   }
 
   // Locale for date/time formatting (#55). Unlike _resolveLanguage this

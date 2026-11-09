@@ -38,7 +38,7 @@
       <img src="https://raw.githubusercontent.com/KadenThomp36/air-quality-card/main/images/feature-compact.png" alt="Compact and expandable cards with alert chips">
       <p><b>Compact &amp; expandable</b><br>A one-line summary for overview dashboards, with chips naming whatever is out of range. Tap to expand.</p>
       <img src="https://raw.githubusercontent.com/KadenThomp36/air-quality-card/main/images/feature-localized.png" alt="The card in German with 24-hour time and decimal commas">
-      <p><b>Your language and formats</b><br>Seven languages, and numbers, clock and time zone follow your Home Assistant profile.</p>
+      <p><b>Your language and formats</b><br>Nine languages, and numbers, clock and time zone follow your Home Assistant profile.</p>
     </td>
     <td width="33%" valign="top">
       <img src="https://raw.githubusercontent.com/KadenThomp36/air-quality-card/main/images/feature-sensors.png" alt="O₂, NO₂, noise and pressure graphs">
@@ -145,7 +145,7 @@ At least one sensor is required; every other option is optional.
 | `compact_alerts` | `true` | In compact/collapsed view, show chips naming the sensors that are out of range |
 | `auto_expand` | `false` | With `display: expandable`, expand while any sensor is out of range and collapse after 5 minutes back to normal |
 | `order` | default order | Graph order, as a list of metric names ([details](#sensor-order)) |
-| `language` | `auto` | `auto` (Home Assistant's language), `en`, `es`, `fr`, `de`, `pt`, `hu` or `pl` |
+| `language` | `auto` | `auto` (Home Assistant's language), `en`, `es`, `fr`, `de`, `pt`, `hu`, `pl`, `ru`, `sr` (Cyrillic) or `sr-Latn` (Latin) |
 
 ### Units
 
@@ -340,7 +340,7 @@ order:
 
 ### Language and formats
 
-The card speaks **English, Spanish, French, German, Portuguese, Hungarian and Polish**, following your Home Assistant language. Force one with `language: es` (or `en` / `fr` / `de` / `pt` / `hu` / `pl`).
+The card speaks **English, Spanish, French, German, Portuguese, Hungarian, Polish, Russian and Serbian** (Cyrillic and Latin script), following your Home Assistant language. Force one with `language: es` (or `en` / `fr` / `de` / `pt` / `hu` / `pl` / `ru` / `sr` / `sr-Latn`).
 
 Formats follow your Home Assistant profile, like the rest of your dashboard: **Number format** (decimal comma, grouping), **Time format** (12 or 24 hours, independent of language) and **Time zone** ("Use server time zone").
 
@@ -668,7 +668,7 @@ Contributions are welcome — bug reports, new sensors, translations (see [Langu
 
 ## Credits
 
-- Translations: Spanish, French and German by [@b0rv3g4r4](https://github.com/b0rv3g4r4), Portuguese by [@mzspicoli](https://github.com/mzspicoli), Hungarian by [@fema3832](https://github.com/fema3832), Polish by [@diijkstra](https://github.com/diijkstra)
+- Translations: Spanish, French and German by [@b0rv3g4r4](https://github.com/b0rv3g4r4), Portuguese by [@mzspicoli](https://github.com/mzspicoli), Hungarian by [@fema3832](https://github.com/fema3832), Polish by [@diijkstra](https://github.com/diijkstra), Russian by [@ilazz3](https://github.com/ilazz3), Serbian by [@cpmarexel2f](https://github.com/cpmarexel2f)
 - Particulate, NO₂ and O₃ thresholds: [WHO 2021 Air Quality Guidelines](https://www.who.int/publications/i/item/9789240034228)
 - CO: [US EPA](https://www.epa.gov/co-pollution) and WHO indoor guidelines
 - CO₂ bands are common ventilation-proxy levels; see [ASHRAE's position document on indoor CO₂](https://www.ashrae.org/file%20library/about/position%20documents/pd_indoorcarbondioxide_2025.pdf) for why CO₂ isn't a health limit
