@@ -1619,6 +1619,32 @@ enCard._config.language = 'auto';
 enCard._hass = { config: { unit_system: { temperature: '°F' } }, states: {}, locale: { language: 'es-MX' } };
 assert(enCard._resolveLanguage() === 'es', 'es-MX → es (regional code stripped)');
 
+// Script subtags pick their own pack (#62): HA's Serbian Latin is 'sr-Latn'
+enCard._hass = { config: { unit_system: { temperature: '°F' } }, states: {}, locale: { language: 'sr-Latn' } };
+assert(enCard._resolveLanguage() === 'sr-Latn', "HA 'sr-Latn' → sr-Latn, not Cyrillic");
+enCard._hass.locale.language = 'sr';
+assert(enCard._resolveLanguage() === 'sr', "HA 'sr' → sr (Cyrillic)");
+enCard._hass.locale.language = 'sr-Latn-RS';
+assert(enCard._resolveLanguage() === 'sr-Latn', 'sr-Latn-RS → longest shipped prefix sr-Latn');
+enCard._hass.locale.language = 'sr-RS';
+assert(enCard._resolveLanguage() === 'sr', 'sr-RS → sr');
+enCard._config.language = 'sr-latn';
+assert(enCard._resolveLanguage() === 'sr-Latn', 'explicit tag matches case-insensitively');
+enCard._config.language = 'ru';
+assert(enCard._resolveLanguage() === 'ru', 'explicit ru → ru');
+enCard._config.language = 'pt_BR';
+assert(enCard._resolveLanguage() === 'pt', 'underscore separator → pt');
+enCard._config.language = 'auto';
+enCard._hass.locale.language = 'ru-RU';
+assert(enCard._resolveLanguage() === 'ru', 'ru-RU → ru');
+enCard._config.language = 'sr-Latn';
+assert(enCard._t('status', 'good') === 'Dobro', 'sr-Latn status label is Latin');
+enCard._config.language = 'sr';
+assert(enCard._t('status', 'good') === 'Добро', 'sr status label is Cyrillic');
+enCard._config.language = 'ru';
+assert(enCard._t('recommendation', 'all_good') === 'Всё в порядке', 'ru recommendation label');
+enCard._config.language = 'auto';
+
 section('Translation lookup');
 
 // English baseline

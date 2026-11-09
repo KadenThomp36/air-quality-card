@@ -1,5 +1,5 @@
 /**
- * Air Quality Card v2.13.0
+ * Air Quality Card v2.14.0
  * A custom Home Assistant card for air quality visualization
  * Default thresholds anchor to WHO 2021 Air Quality Guidelines, US EPA/OSHA
  * limits and EU air-quality directives where such guidance exists; the
@@ -8,7 +8,7 @@
  * https://github.com/KadenThomp36/air-quality-card
  */
 
-const CARD_VERSION = '2.13.0';
+const CARD_VERSION = '2.14.0';
 
 // Shared color palettes for the 5-tier color scale used across metrics.
 const SCALE_AIRQUALITY = ['#4caf50', '#8bc34a', '#ffc107', '#ff9800', '#f44336']; // green → red
@@ -516,6 +516,288 @@ const TRANSLATIONS = {
     },
     label: { outdoor: 'Na zewnątrz', out: 'zew.', lt: 'DT', loading: 'Ładowanie…' }
   },
+  ru: {
+    status: {
+      excellent: 'Отлично', good: 'Хорошо', moderate: 'Умеренно', fair: 'Приемлемо',
+      poor: 'Плохо', very_poor: 'Очень плохо', extremely_poor: 'Крайне плохо', dangerous: 'Опасно',
+      safe: 'Безопасно', low: 'Низко', high: 'Высоко', elevated: 'Повышено', clean: 'Чисто',
+      too_dry: 'Слишком сухо', dry: 'Сухо', comfortable: 'Комфортно', humid: 'Влажно', too_humid: 'Слишком влажно',
+      cold: 'Холодно', cool: 'Прохладно', warm: 'Тепло', hot: 'Жарко',
+      normal: 'Норма', enriched: 'Обогащено', slightly_low: 'Слегка низко', slightly_high: 'Слегка высоко',
+      quiet: 'Тихо', loud: 'Громко', very_loud: 'Очень громко',
+      unavailable: 'Недоступно'
+    },
+    recommendation: {
+      all_good: 'Всё в порядке', ventilate_now: 'Проветрите', run_air_purifier: 'Включите очиститель',
+      consider_air_purifier: 'Подумайте об очистителе', open_window: 'Откройте окно',
+      air_purifier_ventilate: 'Очиститель + проветривание', co_danger: 'Опасность CO — покиньте помещение',
+      co_warning: 'Внимание, CO — проветрите сейчас', co_elevated: 'CO повышен — проветрите',
+      consider_ventilating: 'Стоит проветрить', keep_windows_closed: 'Держите окна закрытыми',
+      too_dry: 'Слишком сухо', too_humid: 'Слишком влажно', ventilate_formaldehyde: 'Проветрите — формальдегид',
+      ventilate_vocs: 'Проветрите — повышены VOCs',
+      propane_danger: 'Опасность утечки газа — эвакуируйтесь', propane_warning: 'Возможна утечка газа — проветрите сейчас',
+      o2_danger: 'Опасно низкий O₂ — покиньте помещение', o2_warning: 'Низкий O₂ — проветрите сейчас',
+      ventilate_no2: 'Проветрите — повышен NO₂', ventilate_o3: 'Проветрите — повышен O₃',
+      reduce_noise: 'Снизьте уровень шума'
+    },
+    subtitle: {
+      air_quality_healthy: 'Качество воздуха в пределах нормы',
+      co_danger: 'CO: {value} — обнаружен опасный уровень', co_danger_unknown: 'Опасный уровень CO',
+      co_warning: 'CO: {value} — немедленно откройте все окна', co_warning_unknown: 'Высокий уровень CO',
+      co_elevated: 'CO: {value} — улучшите вентиляцию', co_elevated_unknown: 'Повышенный уровень CO',
+      propane_danger: 'Пропан: {value} — взрывоопасный уровень, немедленно эвакуируйтесь', propane_danger_unknown: 'Опасный уровень пропана',
+      propane_warning: 'Пропан: {value} — возможна утечка газа, проветрите сейчас', propane_warning_unknown: 'Повышенный уровень пропана',
+      o2_danger: 'O₂: {value} — опасно низкий уровень кислорода', o2_danger_unknown: 'Опасно низкий уровень кислорода',
+      o2_warning: 'O₂: {value} — улучшите вентиляцию', o2_warning_unknown: 'Низкий уровень кислорода',
+      ventilate_no2: 'NO₂: {value} - нужна вентиляция', ventilate_no2_unknown: 'Повышенный уровень NO₂',
+      ventilate_o3: 'O₃: {value} - нужна вентиляция', ventilate_o3_unknown: 'Повышенный уровень O₃',
+      purifier_pm25: 'PM2.5: {value} - очистите воздух',
+      purifier_pm10: 'PM10: {value} - очистите воздух',
+      purifier_generic: 'Повышенный уровень взвешенных частиц',
+      consider_purifier_pm10: 'PM10: {value}',
+      open_window_co2: 'CO₂: {value} - нужен свежий воздух',
+      purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}',
+      ventilate_now_co2: 'CO₂: {value} - может влиять на концентрацию',
+      ventilate_formaldehyde: 'HCHO: {value} - нужна вентиляция',
+      ventilate_formaldehyde_unknown: 'Повышенный уровень формальдегида',
+      ventilate_vocs: 'tVOC: {value} - нужна вентиляция',
+      ventilate_vocs_unknown: 'Повышенный уровень VOCs',
+      too_dry: 'Влажность: {value} - подумайте об увлажнителе',
+      too_humid: 'Влажность: {value} - проветрите',
+      consider_ventilating_co2: 'CO₂: {value}',
+      consider_ventilating_pm25: 'PM2.5: {value}',
+      consider_ventilating_generic: 'Показатели слегка повышены',
+      keep_closed_outdoor_pm25_poor: 'PM2.5 на улице: {value} - плохой уличный воздух',
+      keep_closed_outdoor_pm25: 'PM2.5 на улице: {value} - хуже, чем в помещении',
+      keep_closed_outdoor_co2: 'CO₂ на улице: {value} - хуже, чем в помещении',
+      keep_closed_generic: 'Качество воздуха на улице хуже, чем в помещении',
+      reduce_noise: 'Шум: {value} - длительное воздействие вредно для слуха', reduce_noise_unknown: 'Повышенный уровень шума'
+    },
+    radon: {
+      advisory_danger: 'Высокий радон — нужны меры по снижению',
+      advisory_warning: 'Радон выше уровня действий EPA',
+      advisory_info: 'Радон — требуется контроль',
+      short_term: 'Краткосрочный', long_term: 'Долгосрочный',
+      subtitle_single: 'Радон: {value}', action_danger: 'обратитесь к сертифицированному специалисту по снижению радона', action_warning: 'EPA рекомендует принять меры при значениях выше {threshold}', action_info: 'приближается к уровню действий'
+    },
+    metric: { humidity: 'Влажность', temperature: 'Температура', pressure: 'Давление', noise: 'Шум' },
+    editor: {
+      co2_entity: 'Датчик CO₂', pm25_entity: 'Датчик PM2.5',
+      humidity_entity: 'Датчик влажности', temperature_entity: 'Датчик температуры',
+      radon_entity: 'Датчик радона', radon_longterm_entity: 'Датчик радона (долгосрочный)',
+      co_entity: 'Датчик CO (угарный газ)', hcho_entity: 'Датчик формальдегида (HCHO)',
+      tvoc_entity: 'Датчик tVOC', pm4_entity: 'Датчик PM4', nox_entity: 'Датчик NOx',
+      pm1_entity: 'Датчик PM1', pm10_entity: 'Датчик PM10', pm03_entity: 'Датчик PM0.3',
+      pressure_entity: 'Датчик атмосферного давления', noise_entity: 'Датчик шума (дБ)',
+      o2_entity: 'Датчик кислорода (O₂)', no2_entity: 'Датчик диоксида азота (NO₂)',
+      o3_entity: 'Датчик озона (O₃)', c3h8_entity: 'Датчик пропана (C₃H₈)',
+      outdoor_co2_entity: 'CO₂ на улице', outdoor_pm25_entity: 'PM2.5 на улице',
+      outdoor_humidity_entity: 'Влажность на улице', outdoor_temperature_entity: 'Температура на улице',
+      outdoor_co_entity: 'CO на улице', outdoor_hcho_entity: 'HCHO на улице',
+      outdoor_tvoc_entity: 'tVOC на улице', outdoor_pm1_entity: 'PM1 на улице',
+      outdoor_pm10_entity: 'PM10 на улице', outdoor_pm03_entity: 'PM0.3 на улице',
+      outdoor_nox_entity: 'NOx на улице', outdoor_pressure_entity: 'Давление на улице',
+      outdoor_no2_entity: 'NO₂ на улице', outdoor_o3_entity: 'O₃ на улице',
+      air_quality_entity: 'Индекс качества воздуха (необязательно)',
+      temperature_unit: 'Единицы температуры', temperature_decimals: 'Температура с одним знаком после запятой', radon_unit: 'Единицы радона',
+      tvoc_unit: 'Тип измерения tVOC', nox_unit: 'Тип измерения NOx', language: 'Язык',
+      recommendation_action: 'Действие рекомендации (кнопка)',
+      compact_alerts: 'Метки тревог в свёрнутом виде',
+      auto_expand: 'Разворачивать при ухудшении качества воздуха',
+      section_additional: 'Дополнительные датчики', section_outdoor: 'Уличные датчики',
+      section_advanced: 'Дополнительно',
+      show_min_max: 'Показывать мин./макс. для каждого показателя', y_scale: 'Масштаб оси Y графика', show_status_banner: 'Показывать строку статуса', order: 'Порядок датчиков', display: 'Режим отображения'
+    },
+    label: { outdoor: 'Снаружи', out: 'снаружи', lt: 'ДС', loading: 'Загрузка…' }
+  },
+  sr: {
+    status: {
+      excellent: 'Одлично', good: 'Добро', moderate: 'Умерено', fair: 'Прихватљиво',
+      poor: 'Лоше', very_poor: 'Веома лоше', extremely_poor: 'Изузетно лоше', dangerous: 'Опасно',
+      safe: 'Безбедно', low: 'Низак', high: 'Висок', elevated: 'Повишен', clean: 'Чист',
+      too_dry: 'Превише суво', dry: 'Суво', comfortable: 'Пријатно', humid: 'Влажно', too_humid: 'Превише влажно',
+      cold: 'Хладно', cool: 'Свеже', warm: 'Топло', hot: 'Вруће',
+      normal: 'Нормалан', enriched: 'Обогаћен', slightly_low: 'Благо низак', slightly_high: 'Благо висок',
+      quiet: 'Тихо', loud: 'Гласно', very_loud: 'Веома гласно',
+      unavailable: 'Недоступно'
+    },
+    recommendation: {
+      all_good: 'Све је у реду', ventilate_now: 'Проветрите одмах', run_air_purifier: 'Укључите пречишћивач ваздуха',
+      consider_air_purifier: 'Размислите о пречишћивачу ваздуха', open_window: 'Отворите прозор',
+      air_purifier_ventilate: 'Пречишћивач + проветравање', co_danger: 'Опасност од CO — напустите просторију',
+      co_warning: 'Упозорење за CO — проветрите одмах', co_elevated: 'Повишен CO — проветрите',
+      consider_ventilating: 'Размислите о проветравању', keep_windows_closed: 'Држите прозоре затворене',
+      too_dry: 'Превише суво', too_humid: 'Превише влажно', ventilate_formaldehyde: 'Проветрите — формалдехид',
+      ventilate_vocs: 'Проветрите — повишен ниво VOC',
+      propane_danger: 'Опасност од цурења гаса — евакуишите се', propane_warning: 'Упозорење за цурење гаса — проветрите одмах',
+      o2_danger: 'Опасно низак кисеоник — напустите просторију', o2_warning: 'Низак кисеоник — проветрите одмах',
+      ventilate_no2: 'Проветрите — повишен NO₂', ventilate_o3: 'Проветрите — повишен O₃',
+      reduce_noise: 'Смањите ниво буке'
+    },
+    subtitle: {
+      air_quality_healthy: 'Квалитет ваздуха је у границама здравог',
+      co_danger: 'CO је на {value} — откривен је опасан ниво', co_danger_unknown: 'Опасан ниво CO',
+      co_warning: 'CO је на {value} — одмах отворите све прозоре', co_warning_unknown: 'Висок ниво CO',
+      co_elevated: 'CO је на {value} — побољшајте проветравање', co_elevated_unknown: 'Повишен ниво CO',
+      propane_danger: 'Пропан је на {value} — експлозиван ниво, евакуишите се одмах', propane_danger_unknown: 'Опасан ниво пропана',
+      propane_warning: 'Пропан је на {value} — могуће цурење гаса, проветрите одмах', propane_warning_unknown: 'Повишен ниво пропана',
+      o2_danger: 'O₂ је на {value} — опасно низак ниво кисеоника', o2_danger_unknown: 'Опасно низак ниво кисеоника',
+      o2_warning: 'O₂ је на {value} — побољшајте проветравање', o2_warning_unknown: 'Низак ниво кисеоника',
+      ventilate_no2: 'NO₂ је на {value} - потребно је проветравање', ventilate_no2_unknown: 'Повишен ниво NO₂',
+      ventilate_o3: 'O₃ је на {value} - потребно је проветравање', ventilate_o3_unknown: 'Повишен ниво O₃',
+      purifier_pm25: 'PM2.5 је на {value} - филтрирајте ваздух',
+      purifier_pm10: 'PM10 је на {value} - филтрирајте ваздух',
+      purifier_generic: 'Повишен ниво честица у ваздуху',
+      consider_purifier_pm10: 'PM10 је на {value}',
+      open_window_co2: 'CO₂ је на {value} - потребан је свеж ваздух',
+      purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}',
+      ventilate_now_co2: 'CO₂ је на {value} - може утицати на концентрацију',
+      ventilate_formaldehyde: 'HCHO је на {value} - потребно је проветравање',
+      ventilate_formaldehyde_unknown: 'Повишен ниво формалдехида',
+      ventilate_vocs: 'tVOC је на {value} - потребно је проветравање',
+      ventilate_vocs_unknown: 'Повишен ниво испарљивих органских једињења (VOC)',
+      too_dry: 'Влажност је на {value} - размислите о овлаживачу',
+      too_humid: 'Влажност је на {value} - проветрите',
+      consider_ventilating_co2: 'CO₂ је на {value}',
+      consider_ventilating_pm25: 'PM2.5 је на {value}',
+      consider_ventilating_generic: 'Благо повишен ниво',
+      keep_closed_outdoor_pm25_poor: 'Спољашњи PM2.5 је на {value} - лош спољашњи ваздух',
+      keep_closed_outdoor_pm25: 'Спољашњи PM2.5 је на {value} - лошији него унутра',
+      keep_closed_outdoor_co2: 'Спољашњи CO₂ је на {value} - лошији него унутра',
+      keep_closed_generic: 'Квалитет спољашњег ваздуха је лошији него унутра',
+      reduce_noise: 'Бука је на {value} - дужа изложеност може оштетити слух', reduce_noise_unknown: 'Повишен ниво буке'
+    },
+    radon: {
+      advisory_danger: 'Висок радон — потребна санација',
+      advisory_warning: 'Радон изнад акционог нивоа EPA',
+      advisory_info: 'Радон — пажљиво пратите',
+      short_term: 'Краткорочно', long_term: 'Дугорочно',
+      subtitle_single: 'Радон је на {value}', action_danger: 'контактирајте сертификовано лице за санацију радона', action_warning: 'EPA препоручује санацију изнад {threshold}', action_info: 'близу акционог нивоа'
+    },
+    metric: { humidity: 'Влажност', temperature: 'Температура', pressure: 'Притисак', noise: 'Бука' },
+    editor: {
+      co2_entity: 'Сензор за CO₂', pm25_entity: 'Сензор за PM2.5',
+      humidity_entity: 'Сензор за влажност', temperature_entity: 'Сензор за температуру',
+      radon_entity: 'Сензор за радон', radon_longterm_entity: 'Сензор за радон (дугорочно)',
+      co_entity: 'Сензор за CO (угљен-моноксид)', hcho_entity: 'Сензор за формалдехид (HCHO)',
+      tvoc_entity: 'Сензор за tVOC', pm4_entity: 'Сензор за PM4', nox_entity: 'Сензор за NOx',
+      pm1_entity: 'Сензор за PM1', pm10_entity: 'Сензор за PM10', pm03_entity: 'Сензор за PM0.3',
+      pressure_entity: 'Сензор за атмосферски притисак', noise_entity: 'Сензор за буку (dB)',
+      o2_entity: 'Сензор за кисеоник (O₂)', no2_entity: 'Сензор за азот-диоксид (NO₂)',
+      o3_entity: 'Сензор за озон (O₃)', c3h8_entity: 'Сензор за пропан (C₃H₈)',
+      outdoor_co2_entity: 'Спољашњи CO₂', outdoor_pm25_entity: 'Спољашњи PM2.5',
+      outdoor_humidity_entity: 'Спољашња влажност', outdoor_temperature_entity: 'Спољашња температура',
+      outdoor_co_entity: 'Спољашњи CO', outdoor_hcho_entity: 'Спољашњи HCHO',
+      outdoor_tvoc_entity: 'Спољашњи tVOC', outdoor_pm1_entity: 'Спољашњи PM1',
+      outdoor_pm10_entity: 'Спољашњи PM10', outdoor_pm03_entity: 'Спољашњи PM0.3',
+      outdoor_nox_entity: 'Спољашњи NOx', outdoor_pressure_entity: 'Спољашњи притисак',
+      outdoor_no2_entity: 'Спољашњи NO₂', outdoor_o3_entity: 'Спољашњи O₃',
+      air_quality_entity: 'Индекс квалитета ваздуха (опционо)',
+      temperature_unit: 'Јединица температуре', temperature_decimals: 'Прикажи температуру са једном децималом', radon_unit: 'Јединица радона',
+      tvoc_unit: 'Тип мерења за tVOC', nox_unit: 'Тип мерења за NOx', language: 'Језик',
+      recommendation_action: 'Акција препоруке (дугме)',
+      compact_alerts: 'Обавештења у сажетом приказу',
+      auto_expand: 'Аутоматски прошири када се квалитет ваздуха погорша',
+      section_additional: 'Додатни сензори', section_outdoor: 'Спољашњи сензори',
+      section_advanced: 'Напредно',
+      show_min_max: 'Прикажи мин/макс за сваку ставку', y_scale: 'Скала Y-осе на графикону', show_status_banner: 'Прикажи банер статуса', order: 'Редослед сензора', display: 'Режим приказа'
+    },
+    label: { outdoor: 'Споља', out: 'споља', lt: 'ДТ', loading: 'Учитавање…' }
+  },
+  'sr-Latn': {
+    status: {
+      excellent: 'Odlično', good: 'Dobro', moderate: 'Umereno', fair: 'Prihvatljivo',
+      poor: 'Loše', very_poor: 'Veoma loše', extremely_poor: 'Izuzetno loše', dangerous: 'Opasno',
+      safe: 'Bezbedno', low: 'Nizak', high: 'Visok', elevated: 'Povišen', clean: 'Čist',
+      too_dry: 'Previše suvo', dry: 'Suvo', comfortable: 'Prijatno', humid: 'Vlažno', too_humid: 'Previše vlažno',
+      cold: 'Hladno', cool: 'Sveže', warm: 'Toplo', hot: 'Vruće',
+      normal: 'Normalan', enriched: 'Obogaćen', slightly_low: 'Blago nizak', slightly_high: 'Blago visok',
+      quiet: 'Tiho', loud: 'Glasno', very_loud: 'Veoma glasno',
+      unavailable: 'Nedostupno'
+    },
+    recommendation: {
+      all_good: 'Sve je u redu', ventilate_now: 'Provetrite odmah', run_air_purifier: 'Uključite prečišćivač vazduha',
+      consider_air_purifier: 'Razmislite o prečišćivaču vazduha', open_window: 'Otvorite prozor',
+      air_purifier_ventilate: 'Prečišćivač + provetravanje', co_danger: 'Opasnost od CO — napustite prostoriju',
+      co_warning: 'Upozorenje za CO — provetrite odmah', co_elevated: 'Povišen CO — provetrite',
+      consider_ventilating: 'Razmislite o provetravanju', keep_windows_closed: 'Držite prozore zatvorene',
+      too_dry: 'Previše suvo', too_humid: 'Previše vlažno', ventilate_formaldehyde: 'Provetrite — formaldehid',
+      ventilate_vocs: 'Provetrite — povišen nivo VOC',
+      propane_danger: 'Opasnost od curenja gasa — evakuišite se', propane_warning: 'Upozorenje za curenje gasa — provetrite odmah',
+      o2_danger: 'Opasno nizak kiseonik — napustite prostoriju', o2_warning: 'Nizak kiseonik — provetrite odmah',
+      ventilate_no2: 'Provetrite — povišen NO₂', ventilate_o3: 'Provetrite — povišen O₃',
+      reduce_noise: 'Smanjite nivo buke'
+    },
+    subtitle: {
+      air_quality_healthy: 'Kvalitet vazduha je u granicama zdravog',
+      co_danger: 'CO je na {value} — otkriven je opasan nivo', co_danger_unknown: 'Opasan nivo CO',
+      co_warning: 'CO je na {value} — odmah otvorite sve prozore', co_warning_unknown: 'Visok nivo CO',
+      co_elevated: 'CO je na {value} — poboljšajte provetravanje', co_elevated_unknown: 'Povišen nivo CO',
+      propane_danger: 'Propan je na {value} — eksplozivan nivo, evakuišite se odmah', propane_danger_unknown: 'Opasan nivo propana',
+      propane_warning: 'Propan je na {value} — moguće curenje gasa, provetrite odmah', propane_warning_unknown: 'Povišen nivo propana',
+      o2_danger: 'O₂ je na {value} — opasno nizak nivo kiseonika', o2_danger_unknown: 'Opasno nizak nivo kiseonika',
+      o2_warning: 'O₂ je na {value} — poboljšajte provetravanje', o2_warning_unknown: 'Nizak nivo kiseonika',
+      ventilate_no2: 'NO₂ je na {value} - potrebno je provetravanje', ventilate_no2_unknown: 'Povišen nivel NO₂',
+      ventilate_o3: 'O₃ je na {value} - potrebno je provetravanje', ventilate_o3_unknown: 'Povišen nivo O₃',
+      purifier_pm25: 'PM2.5 je na {value} - filtrirajte vazduh',
+      purifier_pm10: 'PM10 je na {value} - filtrirajte vazduh',
+      purifier_generic: 'Povišen nivo čestica u vazduhu',
+      consider_purifier_pm10: 'PM10 je na {value}',
+      open_window_co2: 'CO₂ je na {value} - potreban je svež vazduh',
+      purifier_ventilate: 'CO₂: {co2}, PM2.5: {pm25}',
+      ventilate_now_co2: 'CO₂ je na {value} - može uticati na koncentraciju',
+      ventilate_formaldehyde: 'HCHO je na {value} - potrebno je provetravanje',
+      ventilate_formaldehyde_unknown: 'Povišen nivo formaldehida',
+      ventilate_vocs: 'tVOC je na {value} - potrebno je provetravanje',
+      ventilate_vocs_unknown: 'Povišen nivo isparljivih organskih jedinjenja (VOC)',
+      too_dry: 'Vlažnost je na {value} - razmislite o ovlaživaču',
+      too_humid: 'Vlažnost je na {value} - provetrite',
+      consider_ventilating_co2: 'CO₂ je na {value}',
+      consider_ventilating_pm25: 'PM2.5 je na {value}',
+      consider_ventilating_generic: 'Blago povišen nivo',
+      keep_closed_outdoor_pm25_poor: 'Spoljašnji PM2.5 je na {value} - loš spoljašnji vazduh',
+      keep_closed_outdoor_pm25: 'Spoljašnji PM2.5 je na {value} - lošiji nego unutra',
+      keep_closed_outdoor_co2: 'Spoljašnji CO₂ je na {value} - lošiji nego unutra',
+      keep_closed_generic: 'Kvalitet spoljašnjeg vazduha je lošiji nego unutra',
+      reduce_noise: 'Buka je na {value} - duža izloženost može oštetiti sluh', reduce_noise_unknown: 'Povišen nivo buke'
+    },
+    radon: {
+      advisory_danger: 'Visok radon — potrebna sanacija',
+      advisory_warning: 'Radon iznad akcionog nivoa EPA',
+      advisory_info: 'Radon — pažljivo pratite',
+      short_term: 'Kratkoročno', long_term: 'Dugoročno',
+      subtitle_single: 'Radon je na {value}', action_danger: 'kontaktirajte sertifikovano lice za sanaciju radona', action_warning: 'EPA preporučuje sanaciju iznad {threshold}', action_info: 'blizu akcionog nivoa'
+    },
+    metric: { humidity: 'Vlažnost', temperature: 'Temperatura', pressure: 'Pritisak', noise: 'Buka' },
+    editor: {
+      co2_entity: 'Senzor za CO₂', pm25_entity: 'Senzor za PM2.5',
+      humidity_entity: 'Senzor za vlažnost', temperature_entity: 'Senzor za temperaturu',
+      radon_entity: 'Senzor za radon', radon_longterm_entity: 'Senzor za radon (dugoročno)',
+      co_entity: 'Senzor za CO (ugljen-monoksid)', hcho_entity: 'Senzor za formaldehid (HCHO)',
+      tvoc_entity: 'Senzor za tVOC', pm4_entity: 'Senzor za PM4', nox_entity: 'Senzor za NOx',
+      pm1_entity: 'Senzor za PM1', pm10_entity: 'Senzor za PM10', pm03_entity: 'Senzor za PM0.3',
+      pressure_entity: 'Senzor za atmosferski pritisak', noise_entity: 'Senzor za buku (dB)',
+      o2_entity: 'Senzor za kiseonik (O₂)', no2_entity: 'Senzor za azot-dioksid (NO₂)',
+      o3_entity: 'Senzor za ozon (O₃)', c3h8_entity: 'Senzor za propan (C₃H₈)',
+      outdoor_co2_entity: 'Spoljašnji CO₂', outdoor_pm25_entity: 'Spoljašnji PM2.5',
+      outdoor_humidity_entity: 'Spoljašnja vlažnost', outdoor_temperature_entity: 'Spoljašnja temperatura',
+      outdoor_co_entity: 'Spoljašnji CO', outdoor_hcho_entity: 'Spoljašnji HCHO',
+      outdoor_tvoc_entity: 'Spoljašnji tVOC', outdoor_pm1_entity: 'Spoljašnji PM1',
+      outdoor_pm10_entity: 'Spoljašnji PM10', outdoor_pm03_entity: 'Spoljašnji PM0.3',
+      outdoor_nox_entity: 'Spoljašnji NOx', outdoor_pressure_entity: 'Spoljašnji pritisak',
+      outdoor_no2_entity: 'Spoljašnji NO₂', outdoor_o3_entity: 'Spoljašnji O₃',
+      air_quality_entity: 'Indeks kvaliteta vazduha (opciono)',
+      temperature_unit: 'Jedinica temperature', temperature_decimals: 'Prikaži temperaturu sa jednom decimalom', radon_unit: 'Jedinica radona',
+      tvoc_unit: 'Tip merenja za tVOC', nox_unit: 'Tip merenja za NOx', language: 'Jezik',
+      recommendation_action: 'Akcija preporuke (dugme)',
+      compact_alerts: 'Obaveštenja u sažetom prikazu',
+      auto_expand: 'Automatski proširi kada se kvalitet vazduha pogorša',
+      section_additional: 'Dodatni senzori', section_outdoor: 'Spoljašnji senzori',
+      section_advanced: 'Napredno',
+      show_min_max: 'Prikaži min/maks za svaku stavku', y_scale: 'Skala Y-ose na grafikonu', show_status_banner: 'Prikaži baner statusa', order: 'Redosled senzora', display: 'Režim prikaza'
+    },
+    label: { outdoor: 'Spolja', out: 'spolja', lt: 'DT', loading: 'Učitavanje…' }
+  },
 };
 
 class AirQualityCard extends HTMLElement {
@@ -784,7 +1066,9 @@ class AirQualityCard extends HTMLElement {
   //   2. hass.locale.language (modern HA, since the deprecation of hass.language)
   //   3. hass.language (older HA versions, deprecated but still present)
   //   4. 'en'
-  // Falls back to 'en' if the resolved code isn't shipped.
+  // The longest shipped prefix of the tag wins, case-insensitively, so HA's
+  // 'sr-Latn' picks the Latin pack while 'sr' / 'sr-RS' get Cyrillic and
+  // 'pt-BR' gets 'pt'. Falls back to 'en' if nothing matches.
   _resolveLanguage() {
     const explicit = this._config.language;
     let lang;
@@ -793,8 +1077,14 @@ class AirQualityCard extends HTMLElement {
     } else {
       lang = this._hass?.locale?.language || this._hass?.language || 'en';
     }
-    const code = String(lang).split('-')[0].toLowerCase();
-    return TRANSLATIONS[code] ? code : 'en';
+    const shipped = Object.keys(TRANSLATIONS);
+    const parts = String(lang).toLowerCase().replace(/_/g, '-').split('-');
+    for (let n = parts.length; n > 0; n--) {
+      const tag = parts.slice(0, n).join('-');
+      const match = shipped.find((key) => key.toLowerCase() === tag);
+      if (match) return match;
+    }
+    return 'en';
   }
 
   // Locale for date/time formatting (#55). Unlike _resolveLanguage this
@@ -3063,7 +3353,7 @@ function configForm() {
           { name: 'display', selector: { select: { options: [{ value: 'full', label: 'Full (graphs and details)' }, { value: 'compact', label: 'Compact (status badge only)' }, { value: 'expandable', label: 'Expandable (compact, tap to expand)' }], mode: 'dropdown' } } },
           { name: 'compact_alerts', default: true, selector: { boolean: {} } },
           { name: 'auto_expand', selector: { boolean: {} } },
-          { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }, { value: 'hu', label: 'Magyar' }, { value: 'pl', label: 'Polski' }], mode: 'dropdown' } } },
+          { name: 'language', selector: { select: { options: [{ value: 'auto', label: 'Auto (from HA)' }, { value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'pt', label: 'Português' }, { value: 'hu', label: 'Magyar' }, { value: 'pl', label: 'Polski' }, { value: 'ru', label: 'Русский' }, { value: 'sr', label: 'Српски' }, { value: 'sr-Latn', label: 'Srpski (latinica)' }], mode: 'dropdown' } } },
           { name: 'temperature_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor/HA)' }, { value: 'F', label: 'Fahrenheit (°F)' }, { value: 'C', label: 'Celsius (°C)' }], mode: 'dropdown' } } },
           { name: 'temperature_decimals', selector: { boolean: {} } },
           { name: 'radon_unit', selector: { select: { options: [{ value: 'auto', label: 'Auto (from sensor)' }, { value: 'pCi/L', label: 'pCi/L (US)' }, { value: 'Bq/m³', label: 'Bq/m³ (International)' }], mode: 'dropdown' } } },
